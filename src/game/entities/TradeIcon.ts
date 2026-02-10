@@ -1,5 +1,5 @@
 import { Scene } from 'phaser';
-import type { TradeListing } from '../../services/contractService';
+import type { TradeListing } from '../../services/types';
 
 export class TradeIcon extends Phaser.GameObjects.Sprite {
   public listing: TradeListing;

@@ -1,8 +1,12 @@
-import { useState } from 'react';
-import { formatEther } from 'viem';
-import type { TradeListing } from '../services/contractService';
-import { useManageListing } from '../hooks/useManageListing';
-import { useAllListings } from '../hooks/useAllListings';
+/**
+ * TradeModal — STUBBED for Solana port.
+ *
+ * The OTC trade/listing system was EVM-specific (ApeChain OTC contract).
+ * This modal is kept as a placeholder so App.tsx doesn't break.
+ * Trading will be re-implemented when a Solana marketplace is integrated.
+ */
+
+import type { TradeListing } from '../services/types';
 
 interface TradeModalProps {
   listing: TradeListing | null;
@@ -10,18 +14,7 @@ interface TradeModalProps {
 }
 
 export default function TradeModal({ listing, onClose }: TradeModalProps) {
-  const [isLoading, setIsLoading] = useState(false);
-  const { refetch } = useAllListings();
-  const otcListing = listing?.otcListing;
-
-  if (!listing || !otcListing) return null;
-
-  const { claimListing } = useManageListing(
-    otcListing,
-    setIsLoading,
-    onClose,
-    refetch
-  );
+  if (!listing) return null;
 
   return (
     <div
@@ -45,136 +38,52 @@ export default function TradeModal({ listing, onClose }: TradeModalProps) {
         style={{
           backgroundColor: '#2a2a2a',
           border: '4px solid #fff',
-          padding: '20px',
-          maxWidth: '500px',
+          padding: '24px',
+          maxWidth: '400px',
+          width: '90%',
           color: '#fff',
           imageRendering: 'pixelated',
+          textAlign: 'center',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <h2
           style={{
             marginTop: 0,
-            marginBottom: '20px',
-            fontSize: '24px',
-            textAlign: 'center',
+            marginBottom: '16px',
+            fontSize: '20px',
             textTransform: 'uppercase',
             letterSpacing: '2px',
+            color: '#ffcc00',
           }}
         >
-          Trade Offer
+          Trading
         </h2>
 
-        <div style={{ marginBottom: '15px' }}>
-          <strong>Listing ID:</strong> {listing.id.toString()}
-        </div>
+        <p style={{ color: '#888', fontSize: '14px', marginBottom: '20px' }}>
+          OTC trading is not yet available on Solana.
+          <br />
+          This feature will be added in a future update.
+        </p>
 
-        <div style={{ marginBottom: '15px' }}>
-          <strong>Seller:</strong>{' '}
-          <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
-            {listing.seller.slice(0, 6)}...{listing.seller.slice(-4)}
-          </span>
-        </div>
-
-        {otcListing && (
-          <>
-            <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#1a1a1a', borderRadius: '4px' }}>
-              <strong style={{ color: '#4a4' }}>Offering:</strong>
-              <div style={{ marginTop: '5px', marginLeft: '10px' }}>
-                {otcListing.tokensForSale?.map((token, idx) => (
-                  <div key={idx} style={{ marginBottom: '5px' }}>
-                    <div>Contract: {token.contractAddress.slice(0, 6)}...{token.contractAddress.slice(-4)}</div>
-                    <div>Token ID: {token.value.toString()}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#1a1a1a', borderRadius: '4px' }}>
-              <strong style={{ color: '#a44' }}>Requesting:</strong>
-              <div style={{ marginTop: '5px', marginLeft: '10px' }}>
-                {otcListing.tokensToReceive?.map((token, idx) => (
-                  <div key={idx} style={{ marginBottom: '5px' }}>
-                    <div>Contract: {token.contractAddress.slice(0, 6)}...{token.contractAddress.slice(-4)}</div>
-                    <div>Amount/ID: {token.value.toString()}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        {!otcListing && (
-          <>
-            <div style={{ marginBottom: '15px' }}>
-              <strong>NFT Contract:</strong>{' '}
-              <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
-                {listing.nftContract.slice(0, 6)}...{listing.nftContract.slice(-4)}
-              </span>
-            </div>
-
-            <div style={{ marginBottom: '15px' }}>
-              <strong>Token ID:</strong> {listing.tokenId.toString()}
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <strong>Price:</strong> {formatEther(listing.price)} APE
-            </div>
-          </>
-        )}
-
-        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-          <button
-            onClick={claimListing}
-            disabled={isLoading}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: isLoading ? '#666' : '#4a4',
-              color: '#fff',
-              border: '2px solid #fff',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              fontFamily: 'Courier New, monospace',
-              fontSize: '16px',
-              textTransform: 'uppercase',
-              imageRendering: 'pixelated',
-              opacity: isLoading ? 0.6 : 1,
-            }}
-            onMouseOver={(e) => {
-              if (!isLoading) {
-                e.currentTarget.style.backgroundColor = '#6a6';
-              }
-            }}
-            onMouseOut={(e) => {
-              if (!isLoading) {
-                e.currentTarget.style.backgroundColor = '#4a4';
-              }
-            }}
-          >
-            {isLoading ? 'Processing...' : 'Claim Listing'}
-          </button>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#a44',
-              color: '#fff',
-              border: '2px solid #fff',
-              cursor: 'pointer',
-              fontFamily: 'Courier New, monospace',
-              fontSize: '16px',
-              textTransform: 'uppercase',
-              imageRendering: 'pixelated',
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.backgroundColor = '#c66';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.backgroundColor = '#a44';
-            }}
-          >
-            Close
-          </button>
-        </div>
+        <button
+          onClick={onClose}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: '#a44',
+            color: '#fff',
+            border: '2px solid #fff',
+            cursor: 'pointer',
+            fontFamily: 'Courier New, monospace',
+            fontSize: '14px',
+            textTransform: 'uppercase',
+            fontWeight: 'bold',
+          }}
+          onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#c66'; }}
+          onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#a44'; }}
+        >
+          Close
+        </button>
       </div>
     </div>
   );

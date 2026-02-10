@@ -15,7 +15,7 @@ import { BikeShopOwner } from '../entities/BikeShopOwner';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT } from '../config/gameConfig';
 import { ChiptuneMusic } from '../utils/chiptuneMusic';
 import { MP3Music } from '../utils/mp3Music';
-import { contractService } from '../../services/contractService';
+// Trade/OTC service disabled for Solana port — contractService was EVM-only
 
 export class GameScene extends Scene {
   private player?: Player;

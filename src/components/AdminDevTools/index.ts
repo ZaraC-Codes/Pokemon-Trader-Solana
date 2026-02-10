@@ -1,2 +1,2 @@
-export { AdminDevTools, type AdminDevToolsProps } from './AdminDevTools';
+export { AdminDevTools } from './AdminDevTools';
 export { default } from './AdminDevTools';

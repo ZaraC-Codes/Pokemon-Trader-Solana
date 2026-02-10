@@ -1,20 +1,26 @@
-import {
-  useAccount,
-  useChainId,
-  usePublicClient,
-  UsePublicClientReturnType,
-} from "wagmi";
+/**
+ * useActiveWeb3React Compatibility Hook
+ *
+ * Thin wrapper that provides the same interface as the old EVM hook
+ * but uses Solana wallet adapter internally. This allows components
+ * that haven't been fully ported yet to still work.
+ */
 
-export const useActiveWeb3React = (
-  impersonatedAccount?: string | undefined
-) => {
-  const publicClient: UsePublicClientReturnType = usePublicClient();
-  const account = useAccount();
-  const chainId = useChainId();
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useMemo } from 'react';
+
+export const useActiveWeb3React = () => {
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
+
+  const account = useMemo(() => {
+    return publicKey?.toBase58();
+  }, [publicKey]);
 
   return {
-    publicClient,
-    account: (impersonatedAccount || account.address) as `0x${string}`,
-    chainId,
+    connection,
+    account,
+    publicKey,
+    connected,
   };
 };

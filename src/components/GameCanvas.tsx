@@ -2,8 +2,8 @@ import { useEffect, useRef, useCallback } from 'react';
 import Phaser from 'phaser';
 import { GameScene } from '../game/scenes/GameScene';
 import { gameConfig, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE } from '../game/config/gameConfig';
-import type { TradeListing } from '../services/contractService';
-import { useGetPokemonSpawns, type PokemonSpawn as ContractPokemonSpawn } from '../hooks/pokeballGame/useGetPokemonSpawns';
+import type { TradeListing } from '../services/types';
+import { usePokemonSpawns, type PokemonSpawn as ContractPokemonSpawn } from '../hooks/solana/usePokemonSpawns';
 import type { PokemonSpawn as ManagerPokemonSpawn } from '../game/managers/PokemonSpawnManager';
 import type { BallType } from '../game/managers/BallInventoryManager';
 
@@ -136,7 +136,7 @@ export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfR
   const pendingSpawnsRef = useRef<ContractPokemonSpawn[] | null>(null);
 
   // Fetch on-chain Pokemon spawns (polls every 5 seconds)
-  const { data: contractSpawns, isLoading: spawnsLoading } = useGetPokemonSpawns();
+  const { data: contractSpawns, isLoading: spawnsLoading } = usePokemonSpawns();
 
   // Keep the callback refs updated without causing re-renders
   useEffect(() => {

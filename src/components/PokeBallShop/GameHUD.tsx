@@ -29,10 +29,10 @@
 
 import { useState, useEffect } from 'react';
 import {
-  usePlayerBallInventory,
+  usePlayerInventory,
   getBallTypeName,
   type BallType,
-} from '../../hooks/pokeballGame';
+} from '../../hooks/solana';
 import { PokeBallShop } from './PokeBallShop';
 import { TransactionHistory } from '../TransactionHistory';
 
@@ -41,7 +41,7 @@ import { TransactionHistory } from '../TransactionHistory';
 // ============================================================
 
 export interface GameHUDProps {
-  playerAddress?: `0x${string}`;
+  playerAddress?: string;
   /** Callback to open the Help modal */
   onShowHelp?: () => void;
 }
@@ -294,7 +294,7 @@ function BallInventorySection({
   inventory,
   onClick,
 }: {
-  inventory: ReturnType<typeof usePlayerBallInventory>;
+  inventory: ReturnType<typeof usePlayerInventory>;
   onClick?: () => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
@@ -370,7 +370,8 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
     }
   }, []);
 
-  const inventory = usePlayerBallInventory(playerAddress);
+  // Solana hook reads connected wallet internally — no address arg needed
+  const inventory = usePlayerInventory();
 
   // No wallet connected - don't show HUD, let the styled RainbowKit button handle connection
   if (!playerAddress) {

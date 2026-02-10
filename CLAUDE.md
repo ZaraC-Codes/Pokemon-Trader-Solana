@@ -5,7 +5,7 @@
 Pokemon Trader is a 2D pixel art game being ported from ApeChain (EVM) to Solana. Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolBalls as the payment token.
 
 - **Version**: 0.1.0
-- **Status**: Solana program deployed to devnet, revenue processor backend implemented — frontend port pending
+- **Status**: Solana program deployed to devnet, revenue processor backend implemented, frontend ported to Solana (builds successfully)
 - **Network**: Solana Devnet (mainnet-beta planned)
 - **Program ID**: `B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ`
 - **Architecture Doc**: `docs/SOLANA_ARCHITECTURE.md` (v1.1)
@@ -18,14 +18,14 @@ Pokemon Trader is a 2D pixel art game being ported from ApeChain (EVM) to Solana
 - **anchor-spl 0.32.1** - SPL Token & Associated Token helpers
 - **Solana CLI 3.0.15** (Agave) - Deployment & management
 
-### Frontend (port in progress)
+### Frontend (ported to Solana)
 - **React 18.2.0** - UI framework
 - **TypeScript 5.2.2** - Type-safe JavaScript
 - **Phaser.js 3.80.1** - 2D game engine
 - **Vite 6.4.1** - Build tool and dev server
-- **@solana/wallet-adapter** - Wallet connection (Phantom, Solflare, Backpack)
+- **@solana/wallet-adapter** - Wallet connection (Phantom, Solflare, Coinbase + auto-detect)
 - **@coral-xyz/anchor** - TypeScript client for Anchor programs
-- **Jupiter Plugin** - Token swap widget (SolBalls acquisition)
+- **Jupiter Terminal v3** - CDN-loaded swap widget (SolBalls acquisition)
 
 ### Backend Services (`backend/`)
 - **Revenue Processor** - Node.js/Express service: monitors SolBalls revenue, swaps to USDC via Jupiter, splits revenue, triggers Gacha purchases, deposits NFTs into vault
@@ -154,11 +154,24 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   ├── SOLANA_ARCHITECTURE.md       # Solana port architecture (v1.1)
 │   └── ...                          # Legacy ApeChain docs
 │
-├── src/                         # Frontend (React + Phaser, port in progress)
-│   ├── components/                  # React UI components
-│   ├── game/                        # Phaser game code
-│   ├── services/                    # Web3 services (being ported to Solana)
-│   └── hooks/                       # React hooks (being ported to Solana)
+├── src/                         # Frontend (React + Phaser, ported to Solana)
+│   ├── solana/                      # Solana integration layer
+│   │   ├── wallet.tsx                   # SolanaWalletProvider (wallet-adapter)
+│   │   ├── programClient.ts             # Anchor IDL client + PDA helpers
+│   │   └── constants.ts                 # Ball prices, catch rates, program ID
+│   ├── hooks/solana/                # Solana hooks (active)
+│   │   ├── index.ts                     # Barrel exports
+│   │   ├── usePlayerInventory.ts        # Read PlayerInventory PDA
+│   │   ├── usePurchaseBalls.ts          # purchase_balls instruction
+│   │   ├── useThrowBall.ts             # throw_ball instruction + VRF
+│   │   ├── usePokemonSpawns.ts          # Read PokemonSlots PDA
+│   │   ├── useSolBallsBalance.ts        # SolBalls token balance
+│   │   ├── useSolanaEvents.ts           # WebSocket event listener
+│   │   └── useActiveWeb3React.ts        # Wallet adapter → { account }
+│   ├── components/                  # React UI components (rewritten for Solana)
+│   ├── game/                        # Phaser game code (mostly unchanged)
+│   ├── hooks/pokeballGame/          # Legacy EVM hooks (not imported)
+│   └── services/                    # Legacy EVM services (not imported)
 │
 ├── Anchor.toml                  # Anchor config (cluster, program ID, wallet)
 ├── .env.example                 # Environment variables template (Solana)
@@ -426,32 +439,79 @@ See `.env.example` for the complete template. Key variables:
 | `VITE_POKEBALL_GAME_PROGRAM_ID` | Program ID for frontend |
 | `VITE_SOLANA_CLUSTER` | Cluster for frontend wallet adapter |
 
-## Frontend (Port Status)
+## Frontend (Ported to Solana)
 
-The Phaser game engine, game entities, and UI components from the ApeChain version are preserved. The Web3 layer is being ported:
+The Phaser game engine, game entities, and UI components from the ApeChain version are preserved. The Web3 layer has been ported from EVM to Solana. **The frontend builds successfully.**
 
-### What Stays (Unchanged)
-- Phaser game engine, scenes, entities (Player, Pokemon, NPC, etc.)
-- Game managers (MapManager, NPCManager, PokemonSpawnManager, etc.)
-- UI components (modals, HUD, animations)
-- Audio system (ChiptuneSFX)
-- Touch input system
+### Solana Frontend Architecture
 
-### What Changes
+| Layer | Files | Description |
+|-------|-------|-------------|
+| Wallet Provider | `src/solana/wallet.tsx` | `SolanaWalletProvider` — ConnectionProvider + WalletProvider + WalletModalProvider |
+| Program Client | `src/solana/programClient.ts` | Anchor IDL-based client with PDA derivation helpers |
+| Constants | `src/solana/constants.ts` | Ball prices, catch rates, decimals, program ID |
+| Hooks | `src/hooks/solana/` | 8 hooks for on-chain interactions |
+| Components | `src/components/` | Rewritten for Solana (PokeBallShop, CatchAttemptModal, etc.) |
+
+### Solana Hooks (`src/hooks/solana/`)
+
+| Hook | Purpose |
+|------|---------|
+| `useActiveWeb3React` | Returns `{ account: string }` from `useWallet().publicKey` |
+| `usePlayerInventory` | Reads `PlayerInventory` PDA (ball counts, stats) with polling |
+| `usePurchaseBalls` | Calls `purchase_balls` instruction |
+| `useThrowBall` | Calls `throw_ball` instruction with VRF seed |
+| `usePokemonSpawns` | Reads `PokemonSlots` PDA, returns active spawns |
+| `useSolBallsBalance` | Reads player's SolBalls token account balance |
+| `useSolanaEvents` | WebSocket event listener for Anchor program events |
+| `useCaughtPokemonEvents` / `useFailedCatchEvents` / `useBallPurchasedEvents` | Typed event hooks (built on `useSolanaEvents`) |
+
+### Components Rewritten for Solana
+
+| Component | Key Changes |
+|-----------|-------------|
+| `PokeBallShop` | SolBalls-only (no APE/USDC toggle), no approval step, Jupiter swap button |
+| `SwapWidget` | Jupiter Terminal v3 integration (CDN), output locked to SolBalls |
+| `CatchAttemptModal` | Direct tx via `useThrowBall`, Solana Explorer links |
+| `CatchWinModal` | Solana Explorer links, no EVM NFT metadata fetching |
+| `CatchResultModal` | Solana Explorer links |
+| `InventoryTerminal` | Uses `usePlayerInventory` for stats display |
+| `AdminDevTools` | Reads Anchor accounts (GameConfig, PokemonSlots, NftVault) |
+| `TransactionHistory` | Session-based event log from WebSocket subscriptions |
+| `WalletConnector` | Solana Wallet Adapter button (auto-detects Phantom, Solflare, etc.) |
+| `TradeModal` | Stubbed (OTC trading not yet on Solana) |
+| `GameCanvas` | Uses `usePokemonSpawns` hook for on-chain spawn data |
+
+### Stubbed (EVM-only, disabled for Solana)
+
+| Component/Manager | Reason |
+|-------------------|--------|
+| `TradeIconManager` | OTC listing system was EVM-specific |
+| `NPCManager` | Trade NPCs now spawn as decorative (no OTC listings) |
+| `FundingWidget` | ThirdWeb Bridge widget (replaced by Jupiter swap) |
+| `BallShop` | Old test shop (replaced by PokeBallShop) |
+
+### Legacy EVM Files (kept for reference, not imported)
+
+The original ApeChain/EVM hooks, services, and connectors remain in the repo but are **not imported** by any active Solana code:
+- `src/hooks/pokeballGame/` — 13+ wagmi-based hooks
+- `src/hooks/useAllListings.tsx`, `useManageListing.tsx`, etc.
+- `src/services/contractService.ts`, `apechainConfig.ts`, `thirdwebConfig.ts`
+- `src/connectors/` — EVM wallet connectors (dGen1, Glyph)
+- `src/utils/alchemy.ts` — Alchemy NFT API
+
+### What Changed (Summary)
+
 | ApeChain | Solana |
 |----------|--------|
 | Wagmi + Viem + RainbowKit | @solana/wallet-adapter |
 | EVM contract calls | Anchor program client (IDL-based) |
 | ERC-20 approvals | SPL Token transfers (no approval step) |
-| ThirdWeb FundingWidget | Jupiter Plugin (swap widget) |
+| ThirdWeb FundingWidget | Jupiter Terminal v3 (CDN swap widget) |
 | Gasless relayer (CF Worker) | Direct transactions (~$0.001 fees) |
-| Hardhat + OpenZeppelin | Anchor framework |
+| Apescan explorer links | Solana Explorer links |
 | `useReadContract` / `useWriteContract` | `program.methods.X().accounts({}).rpc()` |
-
-### What's New
-- Revenue Processor backend (SolBalls → USDC swap + Gacha purchases)
-- Collector Crypt Gacha API integration
-- Jupiter Plugin for SolBalls acquisition
+| Alchemy NFT API | Placeholder (Metaplex metadata TBD) |
 
 ## Revenue Processor Backend
 

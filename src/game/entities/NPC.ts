@@ -1,6 +1,7 @@
 import { Scene } from 'phaser';
 import type { OTCListing } from '../../services/types';
-import { getAlchemyNFTMetadata } from '../../utils/alchemy';
+// Alchemy NFT metadata disabled for Solana port (was EVM-only)
+const getAlchemyNFTMetadata = async (_contract: string, _tokenId: bigint): Promise<{ name?: string; description?: string; image?: string; attributes?: Array<{ trait_type: string; value: string | number }> } | null> => null;
 import { DialogBubble } from './DialogBubble';
 
 export class NPC extends Phaser.GameObjects.Sprite {
