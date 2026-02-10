@@ -1,0 +1,3018 @@
+{
+  "address": "B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ",
+  "metadata": {
+    "name": "pokeball_game",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Pokemon Trader Solana - On-chain game program"
+  },
+  "instructions": [
+    {
+      "name": "consume_randomness",
+      "docs": [
+        "Anyone can call after ORAO fulfills randomness.",
+        "Determines catch/miss for throws, sets position for spawns."
+      ],
+      "discriminator": [
+        190,
+        217,
+        49,
+        162,
+        99,
+        26,
+        73,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Anyone can crank this (typically the player or a backend service)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pokemon_slots",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  107,
+                  101,
+                  109,
+                  111,
+                  110,
+                  95,
+                  115,
+                  108,
+                  111,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_request",
+          "writable": true
+        },
+        {
+          "name": "vrf_randomness",
+          "docs": [
+            "ORAO VRF randomness account. Must match the seed in vrf_request.",
+            "We manually deserialize RandomnessAccountData (enum) from the raw data."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  111,
+                  45,
+                  118,
+                  114,
+                  102,
+                  45,
+                  114,
+                  97,
+                  110,
+                  100,
+                  111,
+                  109,
+                  110,
+                  101,
+                  115,
+                  115,
+                  45,
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vrf_request.seed",
+                "account": "VrfRequest"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                71,
+                177,
+                26,
+                250,
+                145,
+                180,
+                209,
+                249,
+                34,
+                242,
+                123,
+                14,
+                186,
+                193,
+                218,
+                178,
+                59,
+                33,
+                41,
+                164,
+                190,
+                243,
+                79,
+                50,
+                164,
+                123,
+                88,
+                245,
+                206,
+                252,
+                120
+              ]
+            }
+          }
+        },
+        {
+          "name": "nft_vault",
+          "docs": [
+            "NFT vault — needed for catch+award flow."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_inventory",
+          "docs": [
+            "Player inventory — needed for throw results to update stats.",
+            "Optional: only required for throw requests."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "vault_nft_token_account",
+          "docs": [
+            "Source NFT token account (vault's ATA for the NFT).",
+            "Optional: only needed when catch succeeds and vault has NFTs."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "player_nft_token_account",
+          "docs": [
+            "Destination NFT token account (player's ATA for the NFT).",
+            "Optional: only needed when catch succeeds."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "NFT mint — needed for ATA creation/verification."
+          ],
+          "optional": true
+        },
+        {
+          "name": "winner",
+          "docs": [
+            "The player/winner wallet — needed for ATA creation."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "deposit_nft",
+      "docs": [
+        "Authority deposits a Metaplex NFT into the vault."
+      ],
+      "discriminator": [
+        93,
+        226,
+        132,
+        166,
+        141,
+        9,
+        48,
+        101
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "The NFT mint (Metaplex NFT = SPL token with 0 decimals, supply 1)."
+          ]
+        },
+        {
+          "name": "source_nft_account",
+          "docs": [
+            "Authority's NFT token account (source)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault_nft_account",
+          "docs": [
+            "Vault's NFT token account (destination, PDA-owned ATA).",
+            "Created if it doesn't exist."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "nft_vault"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "despawn_pokemon",
+      "docs": [
+        "Authority despawns a Pokemon from a slot."
+      ],
+      "discriminator": [
+        88,
+        235,
+        2,
+        70,
+        147,
+        31,
+        6,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pokemon_slots",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  107,
+                  101,
+                  109,
+                  111,
+                  110,
+                  95,
+                  115,
+                  108,
+                  111,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "force_spawn_pokemon",
+      "docs": [
+        "Authority spawns a Pokemon at specific coordinates (no VRF)."
+      ],
+      "discriminator": [
+        109,
+        48,
+        238,
+        210,
+        113,
+        28,
+        172,
+        142
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pokemon_slots",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  107,
+                  101,
+                  109,
+                  111,
+                  110,
+                  95,
+                  115,
+                  108,
+                  111,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        },
+        {
+          "name": "pos_x",
+          "type": "u16"
+        },
+        {
+          "name": "pos_y",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize the game. Creates GameConfig, PokemonSlots, NftVault, TreasuryConfig.",
+        "One-time call by the authority."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pokemon_slots",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  107,
+                  101,
+                  109,
+                  111,
+                  110,
+                  95,
+                  115,
+                  108,
+                  111,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "solballs_mint",
+          "docs": [
+            "The SolBalls token mint."
+          ]
+        },
+        {
+          "name": "game_solballs_account",
+          "docs": [
+            "The game's SolBalls token account (PDA-owned ATA).",
+            "Receives SolBalls from ball purchases."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "game_config"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "solballs_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        },
+        {
+          "name": "solballs_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "usdc_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "ball_prices",
+          "type": {
+            "array": [
+              "u64",
+              4
+            ]
+          }
+        },
+        {
+          "name": "catch_rates",
+          "type": {
+            "array": [
+              "u8",
+              4
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "purchase_balls",
+      "docs": [
+        "Player purchases balls by transferring SolBalls tokens.",
+        "Auto-creates PlayerInventory PDA on first purchase."
+      ],
+      "discriminator": [
+        221,
+        83,
+        28,
+        77,
+        92,
+        87,
+        210,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_token_account",
+          "docs": [
+            "Player's SolBalls token account (source)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "game_solballs_account",
+          "docs": [
+            "Game's SolBalls token account (destination, PDA-owned)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "player_inventory",
+          "docs": [
+            "Player inventory PDA. Created on first purchase via init_if_needed."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114,
+                  95,
+                  105,
+                  110,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "ball_type",
+          "type": "u8"
+        },
+        {
+          "name": "quantity",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "reposition_pokemon",
+      "docs": [
+        "Authority repositions an existing Pokemon."
+      ],
+      "discriminator": [
+        169,
+        204,
+        248,
+        100,
+        90,
+        125,
+        117,
+        208
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pokemon_slots",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  107,
+                  101,
+                  109,
+                  111,
+                  110,
+                  95,
+                  115,
+                  108,
+                  111,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        },
+        {
+          "name": "new_pos_x",
+          "type": "u16"
+        },
+        {
+          "name": "new_pos_y",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "set_ball_price",
+      "docs": [
+        "Authority updates ball price for a tier."
+      ],
+      "discriminator": [
+        226,
+        61,
+        35,
+        226,
+        60,
+        241,
+        198,
+        102
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "ball_type",
+          "type": "u8"
+        },
+        {
+          "name": "new_price",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_catch_rate",
+      "docs": [
+        "Authority updates catch rate for a tier."
+      ],
+      "discriminator": [
+        85,
+        58,
+        188,
+        172,
+        97,
+        17,
+        164,
+        82
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "ball_type",
+          "type": "u8"
+        },
+        {
+          "name": "new_rate",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "set_max_active_pokemon",
+      "docs": [
+        "Authority updates max active Pokemon soft cap."
+      ],
+      "discriminator": [
+        195,
+        136,
+        221,
+        96,
+        169,
+        252,
+        56,
+        69
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_max",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "spawn_pokemon",
+      "docs": [
+        "Authority requests a random spawn via ORAO VRF."
+      ],
+      "discriminator": [
+        248,
+        98,
+        93,
+        74,
+        39,
+        219,
+        32,
+        8
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pokemon_slots",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  107,
+                  101,
+                  109,
+                  111,
+                  110,
+                  95,
+                  115,
+                  108,
+                  111,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_request",
+          "docs": [
+            "VRF request PDA for tracking this spawn request."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  114,
+                  102,
+                  95,
+                  114,
+                  101,
+                  113
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_config.vrf_counter",
+                "account": "GameConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_config",
+          "docs": [
+            "ORAO VRF network state."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  111,
+                  45,
+                  118,
+                  114,
+                  102,
+                  45,
+                  110,
+                  101,
+                  116,
+                  119,
+                  111,
+                  114,
+                  107,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103,
+                  117,
+                  114,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "orao_vrf"
+            }
+          }
+        },
+        {
+          "name": "vrf_randomness",
+          "docs": [
+            "ORAO VRF randomness account — will be created by the CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vrf_treasury",
+          "docs": [
+            "ORAO VRF treasury to pay the 0.001 SOL fee."
+          ],
+          "writable": true
+        },
+        {
+          "name": "orao_vrf",
+          "address": "VRFzZoJdhFWL8rkvu87LpKM3RbcVezpMEc6X5GVDr7y"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "throw_ball",
+      "docs": [
+        "Player throws a ball at a Pokemon. Requests ORAO VRF for catch determination."
+      ],
+      "discriminator": [
+        251,
+        98,
+        79,
+        75,
+        151,
+        116,
+        67,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pokemon_slots",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  107,
+                  101,
+                  109,
+                  111,
+                  110,
+                  95,
+                  115,
+                  108,
+                  111,
+                  116,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_inventory",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114,
+                  95,
+                  105,
+                  110,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_request",
+          "docs": [
+            "VRF request PDA for tracking this throw."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  114,
+                  102,
+                  95,
+                  114,
+                  101,
+                  113
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_config.vrf_counter",
+                "account": "GameConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_config",
+          "docs": [
+            "ORAO VRF network state."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  111,
+                  45,
+                  118,
+                  114,
+                  102,
+                  45,
+                  110,
+                  101,
+                  116,
+                  119,
+                  111,
+                  114,
+                  107,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103,
+                  117,
+                  114,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "orao_vrf"
+            }
+          }
+        },
+        {
+          "name": "vrf_randomness",
+          "docs": [
+            "ORAO VRF randomness account — will be created by the CPI."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vrf_treasury",
+          "docs": [
+            "ORAO VRF treasury."
+          ],
+          "writable": true
+        },
+        {
+          "name": "orao_vrf",
+          "address": "VRFzZoJdhFWL8rkvu87LpKM3RbcVezpMEc6X5GVDr7y"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        },
+        {
+          "name": "ball_type",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_nft",
+      "docs": [
+        "Authority withdraws an NFT from the vault (admin recovery)."
+      ],
+      "discriminator": [
+        142,
+        181,
+        191,
+        149,
+        82,
+        175,
+        216,
+        100
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_nft_account",
+          "docs": [
+            "Vault's NFT token account (source, PDA-owned)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "authority_nft_account",
+          "docs": [
+            "Authority's NFT token account (destination).",
+            "Created if it doesn't exist."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "The NFT mint."
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nft_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_revenue",
+      "docs": [
+        "Authority withdraws SolBalls revenue from game account."
+      ],
+      "discriminator": [
+        58,
+        241,
+        152,
+        184,
+        104,
+        150,
+        169,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_solballs_account",
+          "docs": [
+            "Game's SolBalls token account (source, PDA-owned)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "authority_solballs_account",
+          "docs": [
+            "Authority's SolBalls token account (destination)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GameConfig",
+      "discriminator": [
+        45,
+        146,
+        146,
+        33,
+        170,
+        69,
+        96,
+        133
+      ]
+    },
+    {
+      "name": "NftVault",
+      "discriminator": [
+        226,
+        169,
+        158,
+        221,
+        65,
+        216,
+        45,
+        158
+      ]
+    },
+    {
+      "name": "PlayerInventory",
+      "discriminator": [
+        101,
+        75,
+        0,
+        132,
+        216,
+        157,
+        45,
+        32
+      ]
+    },
+    {
+      "name": "PokemonSlots",
+      "discriminator": [
+        119,
+        59,
+        200,
+        141,
+        22,
+        244,
+        46,
+        233
+      ]
+    },
+    {
+      "name": "TreasuryConfig",
+      "discriminator": [
+        124,
+        54,
+        212,
+        227,
+        213,
+        189,
+        168,
+        41
+      ]
+    },
+    {
+      "name": "VrfRequest",
+      "discriminator": [
+        153,
+        180,
+        194,
+        105,
+        91,
+        34,
+        95,
+        113
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BallPriceUpdated",
+      "discriminator": [
+        214,
+        208,
+        102,
+        179,
+        127,
+        28,
+        27,
+        93
+      ]
+    },
+    {
+      "name": "BallPurchased",
+      "discriminator": [
+        9,
+        193,
+        157,
+        64,
+        237,
+        198,
+        179,
+        89
+      ]
+    },
+    {
+      "name": "CatchRateUpdated",
+      "discriminator": [
+        81,
+        1,
+        151,
+        192,
+        50,
+        251,
+        217,
+        162
+      ]
+    },
+    {
+      "name": "CaughtPokemon",
+      "discriminator": [
+        5,
+        252,
+        180,
+        72,
+        64,
+        83,
+        217,
+        34
+      ]
+    },
+    {
+      "name": "FailedCatch",
+      "discriminator": [
+        153,
+        221,
+        85,
+        51,
+        104,
+        253,
+        195,
+        8
+      ]
+    },
+    {
+      "name": "MaxActivePokemonUpdated",
+      "discriminator": [
+        90,
+        185,
+        64,
+        69,
+        163,
+        58,
+        194,
+        8
+      ]
+    },
+    {
+      "name": "NftAwarded",
+      "discriminator": [
+        230,
+        146,
+        215,
+        57,
+        16,
+        89,
+        234,
+        221
+      ]
+    },
+    {
+      "name": "NftDeposited",
+      "discriminator": [
+        5,
+        219,
+        175,
+        64,
+        104,
+        214,
+        139,
+        79
+      ]
+    },
+    {
+      "name": "NftWithdrawn",
+      "discriminator": [
+        114,
+        42,
+        189,
+        19,
+        12,
+        216,
+        81,
+        185
+      ]
+    },
+    {
+      "name": "PokemonDespawned",
+      "discriminator": [
+        223,
+        193,
+        192,
+        255,
+        44,
+        111,
+        160,
+        161
+      ]
+    },
+    {
+      "name": "PokemonRelocated",
+      "discriminator": [
+        150,
+        141,
+        205,
+        30,
+        17,
+        109,
+        242,
+        116
+      ]
+    },
+    {
+      "name": "PokemonSpawned",
+      "discriminator": [
+        181,
+        217,
+        6,
+        43,
+        59,
+        57,
+        202,
+        150
+      ]
+    },
+    {
+      "name": "RevenueWithdrawn",
+      "discriminator": [
+        218,
+        28,
+        88,
+        7,
+        95,
+        50,
+        36,
+        103
+      ]
+    },
+    {
+      "name": "ThrowAttempted",
+      "discriminator": [
+        25,
+        78,
+        211,
+        3,
+        230,
+        235,
+        211,
+        48
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "AlreadyInitialized",
+      "msg": "Game has already been initialized"
+    },
+    {
+      "code": 6001,
+      "name": "NotInitialized",
+      "msg": "Game has not been initialized"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidBallType",
+      "msg": "Invalid ball type. Must be 0-3 (Poke, Great, Ultra, Master)"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidCatchRate",
+      "msg": "Invalid catch rate. Must be 0-100"
+    },
+    {
+      "code": 6004,
+      "name": "InsufficientBalls",
+      "msg": "Insufficient ball balance for this throw"
+    },
+    {
+      "code": 6005,
+      "name": "SlotNotActive",
+      "msg": "Pokemon slot is not active"
+    },
+    {
+      "code": 6006,
+      "name": "SlotAlreadyOccupied",
+      "msg": "Pokemon slot is already occupied"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidSlotIndex",
+      "msg": "Invalid slot index. Must be 0-19"
+    },
+    {
+      "code": 6008,
+      "name": "MaxAttemptsReached",
+      "msg": "Maximum throw attempts reached for this Pokemon"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidCoordinate",
+      "msg": "Invalid coordinate. Must be 0-999"
+    },
+    {
+      "code": 6010,
+      "name": "MaxActivePokemonReached",
+      "msg": "Maximum active Pokemon limit reached"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidMaxActivePokemon",
+      "msg": "Invalid max active Pokemon value. Must be 1-20"
+    },
+    {
+      "code": 6012,
+      "name": "VaultFull",
+      "msg": "NFT vault is full (max 20)"
+    },
+    {
+      "code": 6013,
+      "name": "VaultEmpty",
+      "msg": "NFT vault is empty"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidNftIndex",
+      "msg": "Invalid NFT index in vault"
+    },
+    {
+      "code": 6015,
+      "name": "NftNotInVault",
+      "msg": "NFT mint not found in vault"
+    },
+    {
+      "code": 6016,
+      "name": "InsufficientSolBalls",
+      "msg": "Insufficient SolBalls balance for purchase"
+    },
+    {
+      "code": 6017,
+      "name": "ZeroQuantity",
+      "msg": "Purchase quantity must be greater than 0"
+    },
+    {
+      "code": 6018,
+      "name": "PurchaseExceedsMax",
+      "msg": "Purchase exceeds maximum allowed per transaction"
+    },
+    {
+      "code": 6019,
+      "name": "VrfAlreadyFulfilled",
+      "msg": "VRF request has already been fulfilled"
+    },
+    {
+      "code": 6020,
+      "name": "VrfNotFulfilled",
+      "msg": "VRF randomness not yet fulfilled by ORAO"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidVrfRequestType",
+      "msg": "Invalid VRF request type"
+    },
+    {
+      "code": 6022,
+      "name": "InsufficientWithdrawalAmount",
+      "msg": "Insufficient withdrawal amount"
+    },
+    {
+      "code": 6023,
+      "name": "MathOverflow",
+      "msg": "Numerical overflow in calculation"
+    },
+    {
+      "code": 6024,
+      "name": "ZeroBallPrice",
+      "msg": "Ball price must be greater than 0"
+    },
+    {
+      "code": 6025,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: only authority can call this instruction"
+    }
+  ],
+  "types": [
+    {
+      "name": "BallPriceUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ball_type",
+            "type": "u8"
+          },
+          {
+            "name": "old_price",
+            "type": "u64"
+          },
+          {
+            "name": "new_price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BallPurchased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "ball_type",
+            "type": "u8"
+          },
+          {
+            "name": "quantity",
+            "type": "u32"
+          },
+          {
+            "name": "total_cost",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CatchRateUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ball_type",
+            "type": "u8"
+          },
+          {
+            "name": "old_rate",
+            "type": "u8"
+          },
+          {
+            "name": "new_rate",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CaughtPokemon",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "catcher",
+            "type": "pubkey"
+          },
+          {
+            "name": "pokemon_id",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FailedCatch",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "thrower",
+            "type": "pubkey"
+          },
+          {
+            "name": "pokemon_id",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "attempts_remaining",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameConfig",
+      "docs": [
+        "Global game configuration. Single PDA for the entire game."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Owner/admin wallet that can manage spawns, prices, and withdraw revenue."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury wallet receiving 3% of revenue (off-chain split)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "solballs_mint",
+            "docs": [
+              "SolBalls SPL token mint address."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "docs": [
+              "USDC SPL token mint address."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "ball_prices",
+            "docs": [
+              "Ball prices in SolBalls atomic units: [poke, great, ultra, master]."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "catch_rates",
+            "docs": [
+              "Catch rates 0-100 percent: [poke, great, ultra, master]."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "max_active_pokemon",
+            "docs": [
+              "Soft cap on active Pokemon (1-20, default 20)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pokemon_id_counter",
+            "docs": [
+              "Auto-incrementing Pokemon ID counter."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_revenue",
+            "docs": [
+              "Total SolBalls received from all purchases."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "is_initialized",
+            "docs": [
+              "Whether the game has been initialized."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "vrf_counter",
+            "docs": [
+              "VRF request counter for generating unique seeds."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MaxActivePokemonUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old_max",
+            "type": "u8"
+          },
+          {
+            "name": "new_max",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NftAwarded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_remaining",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NftDeposited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NftVault",
+      "docs": [
+        "NFT vault tracking which Metaplex NFTs are held.",
+        "Actual NFTs are in PDA-owned token accounts (one ATA per mint)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Authority that can deposit/withdraw NFTs."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "mints",
+            "docs": [
+              "Mint addresses of NFTs currently in the vault (max 20).",
+              "Using a fixed-size array to avoid Vec realloc issues."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                20
+              ]
+            }
+          },
+          {
+            "name": "count",
+            "docs": [
+              "Number of NFTs currently in the vault."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "max_size",
+            "docs": [
+              "Maximum vault capacity."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NftWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerInventory",
+      "docs": [
+        "Per-player ball inventory and lifetime stats."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "docs": [
+              "Player's wallet pubkey."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "balls",
+            "docs": [
+              "Ball counts: [poke, great, ultra, master]."
+            ],
+            "type": {
+              "array": [
+                "u32",
+                4
+              ]
+            }
+          },
+          {
+            "name": "total_purchased",
+            "docs": [
+              "Lifetime total balls purchased."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_throws",
+            "docs": [
+              "Lifetime total throws."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_catches",
+            "docs": [
+              "Lifetime total successful catches."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PokemonDespawned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pokemon_id",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PokemonRelocated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pokemon_id",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "old_x",
+            "type": "u16"
+          },
+          {
+            "name": "old_y",
+            "type": "u16"
+          },
+          {
+            "name": "new_x",
+            "type": "u16"
+          },
+          {
+            "name": "new_y",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PokemonSlot",
+      "docs": [
+        "Individual Pokemon spawn data."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "is_active",
+            "docs": [
+              "Whether this slot has an active Pokemon."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "pokemon_id",
+            "docs": [
+              "Unique Pokemon ID (from GameConfig.pokemon_id_counter)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pos_x",
+            "docs": [
+              "X position (0-999)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "pos_y",
+            "docs": [
+              "Y position (0-999)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "throw_attempts",
+            "docs": [
+              "Number of throw attempts against this Pokemon (0-3)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "spawn_timestamp",
+            "docs": [
+              "Unix timestamp when this Pokemon was spawned."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PokemonSlots",
+      "docs": [
+        "Holds all 20 Pokemon spawn slots."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slots",
+            "docs": [
+              "Array of 20 Pokemon slots."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "PokemonSlot"
+                  }
+                },
+                20
+              ]
+            }
+          },
+          {
+            "name": "active_count",
+            "docs": [
+              "Number of currently active Pokemon."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PokemonSpawned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pokemon_id",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "pos_x",
+            "type": "u16"
+          },
+          {
+            "name": "pos_y",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RevenueWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ThrowAttempted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "thrower",
+            "type": "pubkey"
+          },
+          {
+            "name": "pokemon_id",
+            "type": "u64"
+          },
+          {
+            "name": "ball_type",
+            "type": "u8"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "vrf_seed",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryConfig",
+      "docs": [
+        "Treasury configuration for revenue tracking."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury_wallet",
+            "docs": [
+              "Treasury wallet pubkey."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "total_withdrawn",
+            "docs": [
+              "Total SolBalls withdrawn for revenue processing."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VrfRequest",
+      "docs": [
+        "Pending VRF request state. Created when VRF is requested,",
+        "read during consume_randomness."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "request_type",
+            "docs": [
+              "Request type: 0 = spawn, 1 = throw."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "player",
+            "docs": [
+              "Player who threw (or authority for spawn)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "slot_index",
+            "docs": [
+              "Pokemon slot index."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "ball_type",
+            "docs": [
+              "Ball type (for throws)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "seed",
+            "docs": [
+              "The 32-byte seed used for the ORAO VRF request."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "is_fulfilled",
+            "docs": [
+              "Whether this request has been fulfilled."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

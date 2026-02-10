@@ -1,0 +1,173 @@
+use anchor_lang::prelude::*;
+use orao_solana_vrf::program::OraoVrf;
+use orao_solana_vrf::CONFIG_ACCOUNT_SEED;
+
+use crate::state::*;
+use crate::errors::GameError;
+use crate::events::ThrowAttempted;
+use crate::constants::*;
+use crate::instructions::spawn_pokemon::make_vrf_seed;
+
+#[derive(Accounts)]
+pub struct ThrowBall<'info> {
+    #[account(mut)]
+    pub player: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [GAME_CONFIG_SEED],
+        bump = game_config.bump,
+        constraint = game_config.is_initialized @ GameError::NotInitialized,
+    )]
+    pub game_config: Box<Account<'info, GameConfig>>,
+
+    #[account(
+        mut,
+        seeds = [POKEMON_SLOTS_SEED],
+        bump = pokemon_slots.bump,
+    )]
+    pub pokemon_slots: Box<Account<'info, PokemonSlots>>,
+
+    #[account(
+        mut,
+        seeds = [PLAYER_INV_SEED, player.key().as_ref()],
+        bump = player_inventory.bump,
+        constraint = player_inventory.player == player.key() @ GameError::Unauthorized,
+    )]
+    pub player_inventory: Account<'info, PlayerInventory>,
+
+    /// VRF request PDA for tracking this throw.
+    #[account(
+        init,
+        payer = player,
+        space = VrfRequest::LEN,
+        seeds = [VRF_REQ_SEED, game_config.vrf_counter.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub vrf_request: Account<'info, VrfRequest>,
+
+    /// ORAO VRF network state.
+    /// CHECK: Validated by the ORAO VRF program CPI.
+    #[account(
+        mut,
+        seeds = [CONFIG_ACCOUNT_SEED],
+        bump,
+        seeds::program = orao_vrf.key(),
+    )]
+    pub vrf_config: AccountInfo<'info>,
+
+    /// ORAO VRF randomness account — will be created by the CPI.
+    /// CHECK: Created and validated by the ORAO VRF program.
+    #[account(mut)]
+    pub vrf_randomness: AccountInfo<'info>,
+
+    /// ORAO VRF treasury.
+    /// CHECK: Validated by the ORAO VRF program CPI.
+    #[account(mut)]
+    pub vrf_treasury: AccountInfo<'info>,
+
+    pub orao_vrf: Program<'info, OraoVrf>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn handler(
+    ctx: Context<ThrowBall>,
+    slot_index: u8,
+    ball_type: u8,
+) -> Result<()> {
+    let slot_idx = slot_index as usize;
+
+    // Validate slot index
+    require!(slot_idx < MAX_POKEMON_SLOTS, GameError::InvalidSlotIndex);
+
+    // Validate ball type
+    require!(
+        (ball_type as usize) < NUM_BALL_TYPES,
+        GameError::InvalidBallType
+    );
+
+    // Check slot is active
+    let pokemon_slots = &ctx.accounts.pokemon_slots;
+    let slot = &pokemon_slots.slots[slot_idx];
+    require!(slot.is_active, GameError::SlotNotActive);
+
+    // Check throw attempts haven't maxed out
+    require!(
+        slot.throw_attempts < MAX_THROW_ATTEMPTS,
+        GameError::MaxAttemptsReached
+    );
+
+    // Check player has balls of this type
+    let inventory = &ctx.accounts.player_inventory;
+    require!(
+        inventory.balls[ball_type as usize] > 0,
+        GameError::InsufficientBalls
+    );
+
+    // Decrement ball count
+    let inventory = &mut ctx.accounts.player_inventory;
+    inventory.balls[ball_type as usize] = inventory.balls[ball_type as usize]
+        .checked_sub(1)
+        .ok_or(GameError::MathOverflow)?;
+    inventory.total_throws = inventory.total_throws
+        .checked_add(1)
+        .ok_or(GameError::MathOverflow)?;
+
+    // Increment throw attempts on this Pokemon
+    let pokemon_slots = &mut ctx.accounts.pokemon_slots;
+    pokemon_slots.slots[slot_idx].throw_attempts = pokemon_slots.slots[slot_idx].throw_attempts
+        .checked_add(1)
+        .ok_or(GameError::MathOverflow)?;
+
+    let pokemon_id = pokemon_slots.slots[slot_idx].pokemon_id;
+
+    // Generate VRF seed using shared helper
+    let game_config = &ctx.accounts.game_config;
+    let seed = make_vrf_seed(game_config.vrf_counter, VRF_TYPE_THROW);
+
+    // CPI to ORAO VRF to request randomness (v2 API)
+    let cpi_program = ctx.accounts.orao_vrf.to_account_info();
+    let cpi_accounts = orao_solana_vrf::cpi::accounts::RequestV2 {
+        payer: ctx.accounts.player.to_account_info(),
+        network_state: ctx.accounts.vrf_config.to_account_info(),
+        treasury: ctx.accounts.vrf_treasury.to_account_info(),
+        request: ctx.accounts.vrf_randomness.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    orao_solana_vrf::cpi::request_v2(cpi_ctx, seed)?;
+
+    // Store VRF request state
+    let vrf_request = &mut ctx.accounts.vrf_request;
+    vrf_request.request_type = VRF_TYPE_THROW;
+    vrf_request.player = ctx.accounts.player.key();
+    vrf_request.slot_index = slot_index;
+    vrf_request.ball_type = ball_type;
+    vrf_request.seed = seed;
+    vrf_request.is_fulfilled = false;
+    vrf_request.bump = ctx.bumps.vrf_request;
+
+    // Increment VRF counter
+    let game_config = &mut ctx.accounts.game_config;
+    game_config.vrf_counter = game_config.vrf_counter
+        .checked_add(1)
+        .ok_or(GameError::MathOverflow)?;
+
+    emit!(ThrowAttempted {
+        thrower: ctx.accounts.player.key(),
+        pokemon_id,
+        ball_type,
+        slot_index,
+        vrf_seed: seed,
+    });
+
+    msg!(
+        "Player {} threw ball type {} at Pokemon {} (slot {})",
+        ctx.accounts.player.key(),
+        ball_type,
+        pokemon_id,
+        slot_index
+    );
+
+    Ok(())
+}

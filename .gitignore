@@ -71,3 +71,21 @@ listings-output.txt
 hooks.zip
 .vercel
 .env*.local
+
+# Solana / Anchor build artifacts
+programs/pokeball_game/target/
+target/debug/
+target/release/
+target/.rustc_info.json
+target/CACHEDIR.TAG
+
+# Keep deploy artifacts and IDL (needed for deployment)
+!target/deploy/
+!target/idl/
+!target/types/
+
+# Cargo lock in program subdirectory (keep root Cargo.lock if exists)
+programs/pokeball_game/Cargo.lock
+
+# Solana temporary files
+UserszaracPokemon-Trader-Solanatmp_spl.json
