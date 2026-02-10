@@ -53,8 +53,17 @@ function getFriendlyErrorMessage(rawError: string | null): string {
   if (errorLower.includes('rejected') || errorLower.includes('denied') || errorLower.includes('cancelled')) {
     return 'Transaction cancelled. Tap Throw to try again.';
   }
-  if (errorLower.includes('insufficientballs') || errorLower.includes('insufficient balls')) {
+  if (errorLower.includes('insufficientballs') || errorLower.includes("don't have any")) {
     return 'Not enough balls! Visit the shop to buy more.';
+  }
+  if (errorLower.includes('slotnotactive') || errorLower.includes('caught or despawned')) {
+    return 'This Pokemon is no longer here. Try another one!';
+  }
+  if (errorLower.includes('maxattemptsreached') || errorLower.includes('no attempts remaining')) {
+    return 'No attempts remaining for this Pokemon.';
+  }
+  if (errorLower.includes('insufficient sol') || errorLower.includes('0x1')) {
+    return 'Need more SOL for transaction fee (~0.001 SOL).';
   }
   if (errorLower.includes('timeout') || errorLower.includes('timed out')) {
     return 'Request timed out. Please try again.';
@@ -64,6 +73,9 @@ function getFriendlyErrorMessage(rawError: string | null): string {
   }
   if (errorLower.includes('wallet') || errorLower.includes('not connected')) {
     return 'Wallet not connected. Please connect your wallet.';
+  }
+  if (errorLower.includes('blockhash') || errorLower.includes('congestion')) {
+    return 'Network busy. Please try again in a moment.';
   }
   return 'Something went wrong. Please try again.';
 }

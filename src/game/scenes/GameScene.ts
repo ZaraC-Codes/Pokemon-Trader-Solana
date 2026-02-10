@@ -891,17 +891,17 @@ export class GameScene extends Scene {
     plantGraphics.generateTexture('plant', TILE_SIZE, TILE_SIZE);
     plantGraphics.destroy();
 
-    // ApeChain art tile
-    const apechainGraphics = this.make.graphics({ x: 0, y: 0 });
-    apechainGraphics.fillStyle(0x0066ff, 1);
-    apechainGraphics.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
-    // Simple ApeChain logo pattern
-    apechainGraphics.fillStyle(0xffffff, 1);
-    apechainGraphics.fillRect(2, 2, 12, 12);
-    apechainGraphics.fillStyle(0x0066ff, 1);
-    apechainGraphics.fillCircle(8, 8, 5);
-    apechainGraphics.generateTexture('apechain', TILE_SIZE, TILE_SIZE);
-    apechainGraphics.destroy();
+    // Solana art tile (decorative texture, not used in tilemap)
+    const solanaGraphics = this.make.graphics({ x: 0, y: 0 });
+    solanaGraphics.fillStyle(0x9945ff, 1);
+    solanaGraphics.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    // Simple Solana gradient pattern
+    solanaGraphics.fillStyle(0x14f195, 1);
+    solanaGraphics.fillRect(2, 2, 12, 12);
+    solanaGraphics.fillStyle(0x9945ff, 1);
+    solanaGraphics.fillCircle(8, 8, 5);
+    solanaGraphics.generateTexture('solana', TILE_SIZE, TILE_SIZE);
+    solanaGraphics.destroy();
   }
 
   create(): void {

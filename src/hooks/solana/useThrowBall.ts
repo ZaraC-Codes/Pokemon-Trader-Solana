@@ -93,15 +93,25 @@ export function useThrowBall(): UseThrowBallReturn {
         if (msg.includes('InsufficientBalls')) {
           setError(new Error("You don't have any of that ball type"));
         } else if (msg.includes('SlotNotActive')) {
-          setError(new Error('No Pokemon in that slot'));
+          setError(new Error('This Pokemon has already been caught or despawned'));
         } else if (msg.includes('MaxAttemptsReached')) {
           setError(new Error('No attempts remaining for this Pokemon'));
-        } else if (msg.includes('User rejected')) {
+        } else if (msg.includes('InvalidSlotIndex')) {
+          setError(new Error('Invalid Pokemon slot'));
+        } else if (msg.includes('InvalidBallType')) {
+          setError(new Error('Invalid ball type selected'));
+        } else if (msg.includes('NotInitialized')) {
+          setError(new Error('Game not initialized. Please try again later.'));
+        } else if (msg.includes('User rejected') || msg.includes('rejected')) {
           setError(new Error('Transaction cancelled'));
-        } else if (msg.includes('insufficient')) {
+        } else if (msg.includes('insufficient') || msg.includes('0x1')) {
           setError(new Error('Insufficient SOL for transaction fee'));
+        } else if (msg.includes('timeout') || msg.includes('Timed out')) {
+          setError(new Error('Transaction timed out. Please try again.'));
+        } else if (msg.includes('blockhash') || msg.includes('Blockhash not found')) {
+          setError(new Error('Network congestion. Please try again.'));
         } else {
-          setError(err);
+          setError(new Error('Throw failed. Please try again.'));
         }
 
         setThrowStatus('error');

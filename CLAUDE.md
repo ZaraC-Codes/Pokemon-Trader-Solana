@@ -2,13 +2,15 @@
 
 ## Project Overview
 
-Pokemon Trader is a 2D pixel art game being ported from ApeChain (EVM) to Solana. Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolBalls as the payment token.
+Pokemon Trader is a 2D pixel art game on Solana (ported from ApeChain/EVM). Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolBalls as the payment token.
 
 - **Version**: 0.1.0
-- **Status**: Solana program deployed to devnet, revenue processor backend implemented, frontend ported to Solana (builds successfully)
+- **Status**: Solana program deployed to devnet, revenue processor backend implemented, frontend ported to Solana (builds successfully, migration QA complete)
 - **Network**: Solana Devnet (mainnet-beta planned)
 - **Program ID**: `B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ`
 - **Architecture Doc**: `docs/SOLANA_ARCHITECTURE.md` (v1.1)
+- **Migration Status**: `docs/MIGRATION_STATUS.md` — feature-by-feature ApeChain→Solana port status
+- **QA Test Plan**: `docs/QA_DEVNET.md` — devnet end-to-end test scenarios
 
 ## Tech Stack
 
@@ -580,6 +582,8 @@ These files are kept for reference during the port but are not active for the So
 | File | Description |
 |------|-------------|
 | `docs/SOLANA_ARCHITECTURE.md` | **Solana port architecture (v1.1)** — component mapping, program design, Gacha API, token flow, VRF, Jupiter Plugin theme |
+| `docs/MIGRATION_STATUS.md` | **ApeChain→Solana migration status** — feature table, active/legacy file lists, remaining work |
+| `docs/QA_DEVNET.md` | **Devnet QA test plan** — end-to-end scenarios, error cases, admin checks, known gotchas |
 | `docs/PRD.md` | Product Requirements Document (v1) |
 | `docs/EXECUTIVE_SUMMARY.md` | Project summary |
 | `docs/implementation_plan.md` | Development roadmap |

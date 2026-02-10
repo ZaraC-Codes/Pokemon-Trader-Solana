@@ -82,10 +82,20 @@ export function usePurchaseBalls(): UsePurchaseBallsReturn {
           setError(new Error('Quantity must be greater than 0'));
         } else if (msg.includes('PurchaseExceedsMax')) {
           setError(new Error('Purchase exceeds maximum per transaction'));
-        } else if (msg.includes('User rejected')) {
+        } else if (msg.includes('InvalidBallType')) {
+          setError(new Error('Invalid ball type selected'));
+        } else if (msg.includes('NotInitialized')) {
+          setError(new Error('Game not initialized. Please try again later.'));
+        } else if (msg.includes('User rejected') || msg.includes('rejected')) {
           setError(new Error('Transaction cancelled'));
+        } else if (msg.includes('insufficient') || msg.includes('0x1')) {
+          setError(new Error('Insufficient SOL for transaction fee'));
+        } else if (msg.includes('timeout') || msg.includes('Timed out')) {
+          setError(new Error('Transaction timed out. Please try again.'));
+        } else if (msg.includes('blockhash') || msg.includes('Blockhash not found')) {
+          setError(new Error('Network congestion. Please try again.'));
         } else {
-          setError(err);
+          setError(new Error('Transaction failed. Please try again.'));
         }
       } finally {
         setIsLoading(false);

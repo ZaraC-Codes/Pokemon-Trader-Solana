@@ -181,8 +181,16 @@ export function SwapWidget({ isOpen, onClose }: SwapWidgetProps) {
 
   useEffect(() => {
     if (isOpen && !hasInitialized.current) {
-      // Small delay to ensure DOM is ready
-      const timer = setTimeout(initJupiter, 200);
+      // Try immediately, then retry with backoff if Jupiter CDN hasn't loaded yet
+      const tryInit = (attempt: number) => {
+        if (hasInitialized.current) return;
+        if (window.Jupiter) {
+          initJupiter();
+        } else if (attempt < 10) {
+          setTimeout(() => tryInit(attempt + 1), 500);
+        }
+      };
+      const timer = setTimeout(() => tryInit(0), 200);
       return () => clearTimeout(timer);
     }
   }, [isOpen, initJupiter]);

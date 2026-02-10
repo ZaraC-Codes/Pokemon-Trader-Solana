@@ -297,7 +297,7 @@ export function PokeBallShop({ isOpen, onClose, playerAddress }: PokeBallShopPro
 
   const handleDismissError = useCallback(() => { reset(); }, [reset]);
 
-  // Show success when tx completes
+  // Show success when tx completes and auto-refresh inventory
   useEffect(() => {
     if (txSignature && !error) {
       if (processedTxRef.current === txSignature) return;
@@ -313,8 +313,11 @@ export function PokeBallShop({ isOpen, onClose, playerAddress }: PokeBallShopPro
         });
         setQuantities({ 0: 0, 1: 0, 2: 0, 3: 0 });
       }
+
+      // Refresh inventory immediately so UI shows updated ball counts
+      inventory.refetch();
     }
-  }, [txSignature, error, quantities]);
+  }, [txSignature, error, quantities, inventory.refetch]);
 
   // Reset on close
   useEffect(() => {
