@@ -7,6 +7,7 @@ Pokemon Trader is a 2D pixel art game built on ApeChain that integrates Web3 fun
 - **Version**: 0.0.1
 - **Status**: Active development
 - **Network**: ApeChain Mainnet (Chain ID: 33139)
+- **Solana Port**: Architecture designed (see `docs/SOLANA_ARCHITECTURE.md`) — Anchor program, ORAO VRF, Collector Crypt Gacha API, Jupiter swaps, SolBalls token
 
 ## Tech Stack
 
@@ -4612,3 +4613,4 @@ Comprehensive documentation available in `docs/`:
 - `SETUP_POKEBALL_GAME.md` - **PokeballGame integration setup guide**
 - `UPGRADE_V1.2.0_20_POKEMON.md` - **v1.2.0 upgrade guide (3→20 Pokemon)**
 - `claude_agents.md` - Claude agent integration
+- `SOLANA_ARCHITECTURE.md` - **Solana port architecture (v1.1)** — component mapping, Anchor program design, Gacha API integration, SolBalls token/treasury flow, ORAO VRF randomness, Jupiter Plugin theme spec
