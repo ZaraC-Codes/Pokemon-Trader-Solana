@@ -1,0 +1,225 @@
+/**
+ * Revenue Processor — main entrypoint.
+ * Express HTTP server with admin endpoints + cron scheduler.
+ */
+import express from "express";
+import { SolanaClient } from "./solanaClient.js";
+import { runRevenueProcessor } from "./revenueProcessor.js";
+import { purchaseMultiplePacks } from "./gachaClient.js";
+import { depositNewNfts } from "./nftDepositor.js";
+import {
+  ADMIN_API_KEY,
+  PORT,
+  CRON_INTERVAL_MS,
+  USDC_MINT,
+  PACK_COST_USDC,
+  MIN_PACKS_PER_RUN,
+  MAX_VAULT_SIZE,
+} from "./config.js";
+
+// ── State ──────────────────────────────────────────────────────
+let lastSwapTime: Date | null = null;
+let lastGachaTime: Date | null = null;
+let lastDepositTime: Date | null = null;
+let isProcessing = false;
+
+// ── Solana Client (lazy init) ──────────────────────────────────
+let client: SolanaClient;
+
+function getClient(): SolanaClient {
+  if (!client) {
+    client = new SolanaClient();
+    console.log(
+      `Solana client initialized. Backend wallet: ${client.wallet.publicKey.toBase58()}`
+    );
+  }
+  return client;
+}
+
+// ── Auth Middleware ─────────────────────────────────────────────
+function requireAuth(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void {
+  const key = req.headers["x-admin-key"];
+  if (key !== ADMIN_API_KEY) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}
+
+// ── Pipeline: Gacha + Deposit ──────────────────────────────────
+async function runGachaPipeline(c: SolanaClient): Promise<{
+  packsPurchased: number;
+  nftsDeposited: number;
+}> {
+  // Check vault capacity
+  const vault = await c.getNftVault();
+  const vaultCount = vault.count;
+  const slotsAvailable = (vault.maxSize || MAX_VAULT_SIZE) - vaultCount;
+
+  if (slotsAvailable <= 0) {
+    console.log("[Gacha] Vault is full. Skipping.");
+    return { packsPurchased: 0, nftsDeposited: 0 };
+  }
+
+  // Check NFT pool USDC balance
+  const usdcBalance = await c.getWalletTokenBalance(USDC_MINT);
+  const packsAffordable = Number(usdcBalance / PACK_COST_USDC);
+  const packsToBuy = Math.min(
+    packsAffordable,
+    slotsAvailable,
+    MIN_PACKS_PER_RUN
+  );
+
+  if (packsToBuy < MIN_PACKS_PER_RUN) {
+    console.log(
+      `[Gacha] Insufficient USDC (${Number(usdcBalance) / 1e6}) or vault capacity. ` +
+        `Can afford ${packsAffordable} packs, ${slotsAvailable} slots available.`
+    );
+    return { packsPurchased: 0, nftsDeposited: 0 };
+  }
+
+  console.log(`[Gacha] Purchasing ${packsToBuy} pack(s)...`);
+  const packs = await purchaseMultiplePacks(c, packsToBuy);
+  lastGachaTime = new Date();
+
+  // Deposit any new NFTs
+  const deposits = await depositNewNfts(c);
+  if (deposits.length > 0) {
+    lastDepositTime = new Date();
+  }
+
+  return {
+    packsPurchased: packs.length,
+    nftsDeposited: deposits.length,
+  };
+}
+
+// ── Full Cron Tick ─────────────────────────────────────────────
+async function cronTick(): Promise<void> {
+  if (isProcessing) {
+    console.log("[Cron] Previous run still in progress. Skipping.");
+    return;
+  }
+
+  isProcessing = true;
+  console.log(`\n[Cron] Tick at ${new Date().toISOString()}`);
+
+  try {
+    const c = getClient();
+
+    // Phase 1: Revenue processing (withdraw + swap + split)
+    const revenueResult = await runRevenueProcessor(c);
+    if (revenueResult) {
+      lastSwapTime = new Date();
+    }
+
+    // Phase 2: Gacha + deposit (runs regardless of phase 1)
+    await runGachaPipeline(c);
+  } catch (err) {
+    console.error(
+      `[Cron] Error: ${err instanceof Error ? err.message : err}`
+    );
+  } finally {
+    isProcessing = false;
+  }
+}
+
+// ── Express App ────────────────────────────────────────────────
+const app = express();
+app.use(express.json());
+
+// Health check (no auth)
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
+// Status endpoint
+app.get("/status", requireAuth, async (_req, res) => {
+  try {
+    const c = getClient();
+    const [gameSolBalls, backendUsdc, backendSol, vault] = await Promise.all([
+      c.getGameSolballsBalance(),
+      c.getWalletTokenBalance(USDC_MINT),
+      c.getWalletSolBalance(),
+      c.getNftVault(),
+    ]);
+
+    res.json({
+      gameSolballsBalance: Number(gameSolBalls) / 1e6,
+      backendUsdcBalance: Number(backendUsdc) / 1e6,
+      backendSolBalance: backendSol / 1e9,
+      vaultNftCount: vault.count,
+      vaultMaxSize: vault.maxSize || MAX_VAULT_SIZE,
+      lastSwapTime: lastSwapTime?.toISOString() || null,
+      lastGachaTime: lastGachaTime?.toISOString() || null,
+      lastDepositTime: lastDepositTime?.toISOString() || null,
+      isProcessing,
+      backendWallet: c.wallet.publicKey.toBase58(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  }
+});
+
+// Manual swap trigger
+app.post("/trigger-swap", requireAuth, async (_req, res) => {
+  if (isProcessing) {
+    res.status(409).json({ error: "Processing already in progress" });
+    return;
+  }
+
+  isProcessing = true;
+  try {
+    const c = getClient();
+    const result = await runRevenueProcessor(c);
+    if (result) {
+      lastSwapTime = new Date();
+    }
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  } finally {
+    isProcessing = false;
+  }
+});
+
+// Manual gacha trigger
+app.post("/trigger-gacha", requireAuth, async (_req, res) => {
+  if (isProcessing) {
+    res.status(409).json({ error: "Processing already in progress" });
+    return;
+  }
+
+  isProcessing = true;
+  try {
+    const c = getClient();
+    const result = await runGachaPipeline(c);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  } finally {
+    isProcessing = false;
+  }
+});
+
+// ── Start ──────────────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`Revenue Processor listening on port ${PORT}`);
+  console.log(`Cron interval: ${CRON_INTERVAL_MS / 1000}s`);
+
+  // Schedule cron
+  setInterval(cronTick, CRON_INTERVAL_MS);
+
+  // Run first tick after 5s startup delay
+  setTimeout(cronTick, 5000);
+});

@@ -5,7 +5,7 @@
 Pokemon Trader is a 2D pixel art game being ported from ApeChain (EVM) to Solana. Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolBalls as the payment token.
 
 - **Version**: 0.1.0
-- **Status**: Solana program deployed to devnet — frontend port pending
+- **Status**: Solana program deployed to devnet, revenue processor backend implemented — frontend port pending
 - **Network**: Solana Devnet (mainnet-beta planned)
 - **Program ID**: `B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ`
 - **Architecture Doc**: `docs/SOLANA_ARCHITECTURE.md` (v1.1)
@@ -27,9 +27,12 @@ Pokemon Trader is a 2D pixel art game being ported from ApeChain (EVM) to Solana
 - **@coral-xyz/anchor** - TypeScript client for Anchor programs
 - **Jupiter Plugin** - Token swap widget (SolBalls acquisition)
 
-### Backend Services (planned)
-- **Revenue Processor** - Cloudflare Worker: monitors SolBalls revenue, swaps to USDC via Jupiter, triggers Gacha purchases
+### Backend Services (`backend/`)
+- **Revenue Processor** - Node.js/Express service: monitors SolBalls revenue, swaps to USDC via Jupiter, splits revenue, triggers Gacha purchases, deposits NFTs into vault
 - **Collector Crypt Gacha API** - REST API for NFT pack purchases
+- **@coral-xyz/anchor** + **@solana/web3.js** + **@solana/spl-token** - On-chain interactions
+- **Express 4** - Admin HTTP endpoints
+- **Vitest** - Unit tests
 
 ## Quick Start
 
@@ -38,6 +41,13 @@ Pokemon Trader is a 2D pixel art game being ported from ApeChain (EVM) to Solana
 npm install          # Install dependencies
 npm run dev          # Start dev server (http://localhost:5173)
 npm run build        # Production build
+
+# Backend (Revenue Processor)
+cd backend
+npm install          # Install dependencies
+cp .env.example .env # Configure environment
+npm run dev          # Start dev server (http://localhost:3001)
+npm test             # Run unit tests
 
 # Solana Program (requires WSL on Windows)
 # Build (two-step due to platform-tools v1.53 requirement)
@@ -112,6 +122,21 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   │   └── pokeball_game.json          # Anchor IDL (63KB, 12 instructions)
 │   └── types/
 │       └── pokeball_game.ts            # Generated TypeScript types
+│
+├── backend/                     # Revenue Processor (Node.js/Express)
+│   ├── package.json                 # Backend dependencies
+│   ├── tsconfig.json                # TypeScript config
+│   ├── vitest.config.ts             # Test runner config
+│   ├── .env.example                 # Backend env vars template
+│   └── src/
+│       ├── index.ts                     # Express server + cron scheduler
+│       ├── config.ts                    # Env var loading & validation
+│       ├── solanaClient.ts              # Anchor program client (PDAs, withdraw, deposit)
+│       ├── revenueProcessor.ts          # Swap pipeline (Jupiter) + USDC split
+│       ├── gachaClient.ts              # Collector Crypt Gacha API client
+│       ├── nftDepositor.ts             # NFT scan + vault deposit
+│       └── __tests__/
+│           └── revenueProcessor.test.ts # Unit tests (split, thresholds)
 │
 ├── scripts/solana/              # Admin CLI scripts (TypeScript)
 │   ├── common.ts                    # Shared setup: PDA derivation, helpers
@@ -394,6 +419,10 @@ See `.env.example` for the complete template. Key variables:
 | `GACHA_API_KEY` | Gacha API authentication key |
 | `JUPITER_API_URL` | Jupiter swap API endpoint |
 | `ANCHOR_WALLET` | Path to authority keypair |
+| `BACKEND_WALLET_PRIVATE_KEY` | Backend wallet (base58, JSON array, or keypair path) |
+| `ADMIN_API_KEY` | Shared secret for backend admin endpoints |
+| `MIN_SOLBALLS_TO_SWAP` | Threshold to trigger swap (atomic units) |
+| `PACK_COST_USDC` | Gacha pack cost (atomic units, default 50M = $50) |
 | `VITE_POKEBALL_GAME_PROGRAM_ID` | Program ID for frontend |
 | `VITE_SOLANA_CLUSTER` | Cluster for frontend wallet adapter |
 
@@ -423,6 +452,34 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 - Revenue Processor backend (SolBalls → USDC swap + Gacha purchases)
 - Collector Crypt Gacha API integration
 - Jupiter Plugin for SolBalls acquisition
+
+## Revenue Processor Backend
+
+### Admin HTTP Endpoints
+
+All endpoints (except `/health`) require `X-ADMIN-KEY` header.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check (no auth) |
+| `/status` | GET | Balances, vault count, timestamps, processing state |
+| `/trigger-swap` | POST | Manual swap + split pipeline |
+| `/trigger-gacha` | POST | Manual Gacha purchase + NFT deposit |
+
+### Cron Pipeline (every 5 min)
+
+1. **Phase 1 — Revenue**: Check game SolBalls balance >= threshold → `withdraw_revenue` → Jupiter swap to USDC → split (3% treasury / 96% NFT pool / 1% SOL reserve)
+2. **Phase 2 — Gacha**: Check NFT pool USDC >= pack cost AND vault not full → Gacha API `generatePack` → sign/submit → `openPack` → `deposit_nft`
+
+### Key Files
+
+| File | Responsibility |
+|------|---------------|
+| `solanaClient.ts` | Anchor wrapper: PDA derivation, `withdrawRevenue()`, `depositNft()`, `findNewNftsInWallet()`, `signAndSendTransaction()` |
+| `revenueProcessor.ts` | Jupiter quote/swap, `splitUsdcAmounts()`, `shouldRunSwap()`, full pipeline orchestration |
+| `gachaClient.ts` | Gacha API: `purchasePack()` (generate→sign→submit→open), `purchaseMultiplePacks()` |
+| `nftDepositor.ts` | Scan wallet for NFTs not in vault, deposit each via `deposit_nft` instruction |
+| `config.ts` | All env vars with validation (revenue split must total 100) |
 
 ## Coding Conventions
 
