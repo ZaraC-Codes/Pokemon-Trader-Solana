@@ -1,0 +1,11 @@
+name = "pokeball-relayer"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+POKEBALL_GAME_ADDRESS = "0xB6e86aF8a85555c6Ac2D812c8B8BE8a60C1C432f"
+APECHAIN_CHAIN_ID = "33139"
+APECHAIN_RPC_URL = "https://apechain.calderachain.xyz/http"
+
+# Set these as secrets via `wrangler secret put`:
+# wrangler secret put RELAYER_PRIVATE_KEY

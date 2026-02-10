@@ -1,0 +1,407 @@
+/**
+ * Touchscreen & Square Screen Responsive Styles
+ *
+ * Optimizations for:
+ * - dGen1 EthereumPhone (square 1:1 screen, ~300x300px)
+ * - General touchscreen devices (no hover states, larger targets)
+ *
+ * Key Principles:
+ * - Minimum 44px touch targets (iOS Human Interface Guidelines)
+ * - No hover-only interactions
+ * - Active/pressed states instead of hover
+ * - Readable fonts at small sizes
+ * - Adequate spacing for finger taps
+ */
+
+/* ============================================================
+   TOUCH TARGET SIZING
+   ============================================================ */
+
+/* Ensure all interactive elements have minimum touch target size */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a,
+  input[type="checkbox"],
+  input[type="radio"],
+  select,
+  .clickable {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Ensure buttons have adequate padding */
+  button:not(.icon-button) {
+    padding: 12px 16px;
+  }
+}
+
+/* ============================================================
+   HOVER STATE ALTERNATIVES
+   ============================================================ */
+
+/* Replace hover states with active/focus for touch devices */
+@media (hover: none) {
+  /* Remove hover effects */
+  button:hover,
+  a:hover,
+  [role="button"]:hover {
+    /* Inherit from normal state */
+  }
+
+  /* Add active states instead */
+  button:active,
+  a:active,
+  [role="button"]:active {
+    opacity: 0.8;
+    transform: scale(0.98);
+  }
+
+  /* Ensure focus states are visible for accessibility */
+  button:focus,
+  a:focus,
+  [role="button"]:focus {
+    outline: 2px solid #ffcc00;
+    outline-offset: 2px;
+  }
+}
+
+/* ============================================================
+   SQUARE SCREEN OPTIMIZATIONS (dGen1)
+   ============================================================ */
+
+/* Square viewport detection (aspect ratio 0.8-1.2) */
+@media (min-aspect-ratio: 4/5) and (max-aspect-ratio: 5/4) {
+  /* Reduce padding and margins */
+  .wallet-connector {
+    padding: 6px 8px;
+  }
+
+  /* Compact modal sizing */
+  .modal-overlay {
+    padding: 8px;
+  }
+
+  .modal-content {
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+  }
+
+  /* Smaller font sizes */
+  body {
+    font-size: 12px;
+  }
+
+  h1, h2, h3 {
+    font-size: 1.2em;
+  }
+
+  /* Stack elements vertically more aggressively */
+  .flex-row {
+    flex-direction: column;
+  }
+}
+
+/* Small square viewport (dGen1 specific, ~300x300) */
+@media (max-width: 350px) and (max-height: 350px) {
+  /* Ultra-compact mode */
+  .wallet-connector {
+    padding: 4px 6px;
+    font-size: 10px;
+  }
+
+  .game-hud-container {
+    padding: 4px;
+    gap: 4px;
+  }
+
+  /* Single column layout */
+  .ball-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+  }
+
+  /* Reduce modal size */
+  .modal-content {
+    padding: 8px;
+  }
+
+  /* Smaller buttons but still touchable */
+  button {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+}
+
+/* ============================================================
+   RAINBOWKIT MODAL OVERRIDES
+   ============================================================ */
+
+/* Make RainbowKit modal touch-friendly */
+@media (pointer: coarse) {
+  /* Wallet list items */
+  [data-testid="rk-wallet-option"] {
+    min-height: 56px;
+    padding: 12px !important;
+  }
+
+  /* Close button */
+  [data-testid="rk-close-button"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Connect button */
+  [data-testid="rk-connect-button"] {
+    min-height: 48px;
+    padding: 12px 20px;
+  }
+}
+
+/* Square screen RainbowKit adjustments */
+@media (min-aspect-ratio: 4/5) and (max-aspect-ratio: 5/4) and (max-width: 400px) {
+  /* Compact wallet picker */
+  [data-testid="rk-connect-modal"] {
+    max-width: 280px;
+    max-height: 280px;
+  }
+
+  /* Two-column wallet grid instead of list */
+  [data-testid="rk-wallet-list"] {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  /* Compact wallet option */
+  [data-testid="rk-wallet-option"] {
+    flex-direction: column;
+    text-align: center;
+    padding: 8px !important;
+  }
+
+  /* Smaller wallet icons */
+  [data-testid="rk-wallet-option"] img {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* ============================================================
+   GAME HUD TOUCH OPTIMIZATIONS
+   ============================================================ */
+
+@media (pointer: coarse) {
+  /* Ball inventory panel - larger touch targets */
+  .ball-inventory-section {
+    gap: 8px;
+  }
+
+  .ball-dot {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* Shop button */
+  .shop-button {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  /* Help button */
+  .help-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Volume toggles */
+  .volume-toggle,
+  .sfx-toggle {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* ============================================================
+   MODAL TOUCH IMPROVEMENTS
+   ============================================================ */
+
+@media (pointer: coarse) {
+  /* Catch attempt modal - larger ball selection buttons */
+  .ball-select-button {
+    min-height: 56px;
+    padding: 12px;
+  }
+
+  /* Close buttons */
+  .modal-close-button {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 20px;
+  }
+
+  /* Transaction history - tap-friendly rows */
+  .transaction-row {
+    min-height: 56px;
+    padding: 12px;
+  }
+
+  /* Scrollable areas - wider scroll gutters */
+  .scrollable {
+    scrollbar-width: auto;
+  }
+}
+
+/* ============================================================
+   MOBILE MODAL SCROLLING
+   Ensures large modals scroll properly on small screens
+   ============================================================ */
+
+/* Apply to small screens (mobile width OR short height) */
+@media (max-width: 768px), (max-height: 700px) {
+  /* Generic modal scroll container */
+  .modal-scroll {
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Modal content area - ensure it can scroll */
+  .modal-content {
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Ensure modal overlay allows inner scroll */
+  .modal-overlay {
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Modal inner container */
+  .modal-inner {
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+}
+
+/* Very small screens - more aggressive constraints */
+@media (max-width: 480px), (max-height: 500px) {
+  .modal-scroll,
+  .modal-content {
+    max-height: calc(100vh - 60px);
+  }
+
+  .modal-inner {
+    max-height: calc(100vh - 24px);
+  }
+}
+
+/* Opt-out class for compact modals (toasts, small dialogs) */
+.modal--compact .modal-scroll,
+.modal--compact .modal-content {
+  max-height: none;
+  overflow: visible;
+}
+
+/* ============================================================
+   PREVENT DOUBLE-TAP ZOOM
+   ============================================================ */
+
+/* Disable double-tap zoom on interactive elements */
+@media (pointer: coarse) {
+  button,
+  a,
+  input,
+  select,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+}
+
+/* ============================================================
+   SAFE AREA INSETS (Notched devices)
+   ============================================================ */
+
+/* Handle safe areas for devices with notches/rounded corners */
+@supports (padding: env(safe-area-inset-top)) {
+  .app-container {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ============================================================
+   ORIENTATION HANDLING
+   ============================================================ */
+
+/* Portrait mode adjustments */
+@media (orientation: portrait) and (max-width: 400px) {
+  .wallet-connector {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+  }
+
+  .game-hud-container {
+    top: auto;
+    bottom: 60px;
+  }
+}
+
+/* Landscape mode on small devices */
+@media (orientation: landscape) and (max-height: 400px) {
+  /* Move controls to sides */
+  .wallet-connector {
+    top: 4px;
+    right: 4px;
+  }
+
+  .game-hud-container {
+    right: auto;
+    left: 4px;
+    top: 4px;
+  }
+}
+
+/* ============================================================
+   DGEN1 / SQUARE SCREEN INVENTORY BUTTON
+   ============================================================ */
+
+/* Make Inventory button smaller on square screens to avoid D-Pad overlap */
+@media (min-aspect-ratio: 4/5) and (max-aspect-ratio: 5/4) {
+  .inventory-button {
+    /* Smaller padding and font for square screens */
+    padding: 8px 12px !important;
+    font-size: 11px !important;
+    border-width: 2px !important;
+    /* Move button further right to avoid D-Pad */
+    left: 140px !important;
+    bottom: 12px !important;
+  }
+}
+
+/* Even smaller on very small square screens (dGen1 ~480x480) */
+@media (min-aspect-ratio: 4/5) and (max-aspect-ratio: 5/4) and (max-width: 520px) {
+  .inventory-button {
+    /* Even more compact for dGen1 */
+    padding: 6px 10px !important;
+    font-size: 10px !important;
+    border-width: 2px !important;
+    /* Position further right to clear D-Pad (120px size + 20px margin + buffer) */
+    left: 150px !important;
+    bottom: 10px !important;
+  }
+
+  /* Hide the icon on very small screens to save space */
+  .inventory-button i {
+    display: none !important;
+  }
+}

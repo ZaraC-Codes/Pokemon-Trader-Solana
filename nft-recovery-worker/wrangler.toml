@@ -1,0 +1,18 @@
+name = "nft-recovery-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+SLAB_NFT_MANAGER_ADDRESS = "0xbbdfa19f9719f9d9348F494E07E0baB96A85AA71"
+SLAB_NFT_ADDRESS = "0x8a981C2cfdd7Fbc65395dD2c02ead94e9a2f65a7"
+APECHAIN_RPC_URL = "https://apechain.calderachain.xyz/http"
+# Scan token IDs 0-500 for untracked NFTs
+SCAN_START_ID = "0"
+SCAN_END_ID = "500"
+
+# Cron trigger: runs every minute
+[triggers]
+crons = ["* * * * *"]
+
+# Set these as secrets via `wrangler secret put`:
+# wrangler secret put RELAYER_PRIVATE_KEY

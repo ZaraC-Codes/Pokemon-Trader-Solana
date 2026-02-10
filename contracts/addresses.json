@@ -1,0 +1,208 @@
+{
+  "apechain": {
+    "chainId": 33139,
+    "networkName": "ApeChain Mainnet"
+  },
+  "contracts": {
+    "pokeballGame": {
+      "proxy": "0xB6e86aF8a85555c6Ac2D812c8B8BE8a60C1C432f",
+      "implementation": "0x308c619d850fc3C38CD61dD286A2a6B4Fa387Ef4",
+      "version": "1.9.0"
+    },
+    "camelotRouter": "0xC69Dc28924930583024E067b2B3d773018F4EB52",
+    "slabNFTManager": {
+      "proxy": "0xbbdfa19f9719f9d9348F494E07E0baB96A85AA71",
+      "implementation": "0xCaFcB2606F8Fae7A2B44f9293920d4cE179ABd2c",
+      "version": "2.4.0"
+    },
+    "slabMachine": "0xC2DC75bdd0bAa476fcE8A9C628fe45a72e19C466",
+    "slabNFT": "0x8a981C2cfdd7Fbc65395dD2c02ead94e9a2f65a7",
+    "popVRNG_deprecated": "0x9eC728Fce50c77e0BeF7d34F1ab28a46409b7aF1",
+    "pythEntropy": "0x36825bf3Fbdf5a29E2d5148bfe7Dcf7B5639e320",
+    "pythEntropyProvider": "0x52DeaA1c84233F7bb8C8A45baeDE41091c616506",
+    "usdc": "0xF1815bd50389c46847f0Bda824eC8da914045D14",
+    "wape": "0x48b62137EdfA95a428D35C09E44256a739F6B557",
+    "ape_deprecated": "0x4d224452801aced8b2f0aebe155379bb5d594381"
+  },
+  "deployment": {
+    "timestamp": "2026-01-21T01:54:29.737Z",
+    "deployer": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "txHashes": {
+      "linkSlabNFTManager": "0xfba5ca1811cef002ff06c1794b1840f2eff4936f2732f89954d59ae31fb18511",
+      "linkPokeballGame": "0xe644b9eb18ac7a57a7322aa9ddbb6c51607009f89db67d5057100e92159dd34f"
+    }
+  },
+  "tokenDetails": {
+    "usdc": {
+      "name": "USDC.e",
+      "symbol": "USDC.e",
+      "decimals": 6,
+      "source": "Stargate Bridged USDC",
+      "verified": true
+    },
+    "wape": {
+      "name": "Wrapped APE",
+      "symbol": "WAPE",
+      "decimals": 18,
+      "source": "ApeChain Wrapped APE (ERC-20)",
+      "verified": true,
+      "note": "Use WAPE for ERC-20 APE payments on ApeChain"
+    },
+    "ape_native": {
+      "name": "APE",
+      "symbol": "APE",
+      "decimals": 18,
+      "source": "Native gas token on ApeChain",
+      "note": "Native APE is used for gas, WAPE is the ERC-20 wrapper"
+    }
+  },
+  "upgrade_v1_2_0": {
+    "timestamp": "2026-01-21T16:40:59.283Z",
+    "oldImplementation": "0x71ED694476909FD5182afE1fDc9098a9975EA6b5",
+    "newImplementation": "0x71ED694476909FD5182afE1fDc9098a9975EA6b5",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06"
+  },
+  "upgrade_v1_4_1": {
+    "timestamp": "2026-01-21T19:45:00.000Z",
+    "oldImplementation": "0x71ED694476909FD5182afE1fDc9098a9975EA6b5",
+    "newImplementation": "0xac45C2104c49eCD51f1B570e6c5d962EB10B72Cc",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "initTxHash": "0x62b97c05003a8666fb56762085c7551e046be8689a6aa5397a3a85625ca17a3e",
+    "changes": [
+      "Native APE payments via msg.value (no ERC-20 approval needed)",
+      "Fee calculation uses requiredAPE instead of msg.value",
+      "purchaseBalls() is now payable",
+      "Added accumulatedAPEFees tracking",
+      "Added withdrawAPEFees() and withdrawAllAPE() functions"
+    ]
+  },
+  "upgrade_v1_4_2": {
+    "timestamp": "2026-01-21T20:30:00.000Z",
+    "oldImplementation": "0xac45C2104c49eCD51f1B570e6c5d962EB10B72Cc",
+    "newImplementation": "0x2cbF8E954D29E2e08E4E521ac031930543962F13",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "apePriceSetTxHash": "0x0ca08ecb3bf47fbc56795cd6723f69737fd1eab0cbda7c6b0dc6071bf7652fa0",
+    "changes": [
+      "Fixed division by zero in calculateAPEAmount() when apePriceUSD is 0",
+      "Default to $0.64 APE price (64000000 in 8 decimals) if not set",
+      "APE price set to 64000000 ($0.64)"
+    ]
+  },
+  "upgrade_v1_5_0": {
+    "timestamp": "2026-01-22T00:00:00.000Z",
+    "oldImplementation": "0x2cbF8E954D29E2e08E4E521ac031930543962F13",
+    "newImplementation": "0xc3EB6a8C02b6E6013B95492eC3Dc15333c52A89E",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "setSlabNFTManagerTxHash": "0x0fc22a64fec7135ef6970e35702a99d9d61544e6143c6821efeeb92dabe5c5a3",
+    "camelotRouter": "0xC69Dc28924930583024E067b2B3d773018F4EB52",
+    "wape": "0x48b62137EdfA95a428D35C09E44256a739F6B557",
+    "swapSlippageBps": 100,
+    "changes": [
+      "Unified payments: APE auto-swaps to USDC.e via Camelot DEX",
+      "3% fees accumulated in USDC.e (accumulatedUSDCFees)",
+      "97% revenue auto-sent to SlabNFTManager.depositRevenue()",
+      "SlabNFTManager.checkAndPurchaseNFT() called after each deposit",
+      "Added withdrawUSDCFees() for owner to withdraw USDC.e fees",
+      "Configurable swap slippage (default 1%)",
+      "SlabNFTManager set to 0xbbdfa19f9719f9d9348F494E07E0baB96A85AA71"
+    ]
+  },
+  "upgrade_v1_6_0": {
+    "timestamp": "2026-01-22T20:45:00.000Z",
+    "oldImplementation": "0xc3EB6a8C02b6E6013B95492eC3Dc15333c52A89E",
+    "newImplementation": "0x363f32ca7Cf83a215aDef4B139a47cAd323F1482",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "initTxHash": "0xaaa663f67b4228ed3a28b0f1e02699c8f8e4158a89ba32fdb06f3a96d18e5388",
+    "pythEntropy": "0x36825bf3Fbdf5a29E2d5148bfe7Dcf7B5639e320",
+    "pythEntropyProvider": "0x52DeaA1c84233F7bb8C8A45baeDE41091c616506",
+    "throwFeeAPE": "0.073211589",
+    "changes": [
+      "Replaced POP VRNG with Pyth Entropy for randomness (no whitelist required)",
+      "throwBall() now requires msg.value to cover Entropy fee (~0.073 APE)",
+      "spawnPokemon() now requires msg.value to cover Entropy fee",
+      "New getThrowFee() view function to query current fee",
+      "entropyCallback() replaces randomNumberCallback() for VRNG results"
+    ]
+  },
+  "upgrade_slabNFTManager_v2_3_0": {
+    "timestamp": "2026-01-24T00:00:00.000Z",
+    "oldImplementation": "0x05c0e3aD3DB67285b7CDaA396f3993A3130b6E25",
+    "newImplementation": "0xC4DDe9b1BaE8f77e08c035e0D5E8aBA59238Ad13",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "upgradeTxHash": "0xf953fb51a7d9a0305cb0bdcbb84095137f1a7217db2a157ae066235cbc3fb499",
+    "changes": [
+      "Added awardNFTToWinnerWithRandomness(winner, randomNumber) for random NFT selection",
+      "Uses (randomNumber >> 128) % inventorySize for unbiased index selection",
+      "O(1) removal via swap-and-pop pattern in _removeFromInventoryAtIndex()",
+      "New NFTAwardedWithRandomness event with selectedIndex and inventorySize",
+      "Backwards compatible: awardNFTToWinner() (FIFO) still works"
+    ]
+  },
+  "upgrade_v1_7_0": {
+    "timestamp": "2026-01-24T00:00:00.000Z",
+    "oldImplementation": "0x363f32ca7Cf83a215aDef4B139a47cAd323F1482",
+    "newImplementation": "0xc087bCcFF99431787d4C38bb3378d45726Dc7DE4",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "upgradeTxHash": "0xfa729e332edc5b6cf0841d871c2e1643094e0776ce7e6065de4ec61ca72627f4",
+    "initTxHash": "0x4c186bfa4b05b0d42b4a2020ff9223987193db110fb738a49c7e1e175005d4b9",
+    "changes": [
+      "Random NFT selection using Pyth Entropy random number",
+      "Calls SlabNFTManager.awardNFTToWinnerWithRandomness() instead of awardNFTToWinner()",
+      "Reuses same random number from catch determination (no extra Entropy fee)",
+      "Uses different entropy bits: low 128 bits for catch rate, high 128 bits for NFT index",
+      "Formula: (randomNumber >> 128) % inventorySize for unbiased selection"
+    ]
+  },
+  "upgrade_slabNFTManager_v2_4_0": {
+    "timestamp": "2026-01-25T00:00:00.000Z",
+    "oldImplementation": "0xC4DDe9b1BaE8f77e08c035e0D5E8aBA59238Ad13",
+    "newImplementation": "0xCaFcB2606F8Fae7A2B44f9293920d4cE179ABd2c",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "upgradeTxHash": "0x15612b375708da949a26f45cd28d238249a5929259393dba898033155620c45b",
+    "initTxHash": "0xc1a803e519797c599ca45ea26ffa51407b8beaa59d0854e969bc46b2380a44b0",
+    "pythEntropy": "0x36825bf3Fbdf5a29E2d5148bfe7Dcf7B5639e320",
+    "pythEntropyProvider": "0x52DeaA1c84233F7bb8C8A45baeDE41091c616506",
+    "changes": [
+      "APE reserve management for Entropy fees (depositAPEReserve, apeReserve)",
+      "Auto-purchase loop in checkAndPurchaseNFT() (until 20 NFTs OR funds depleted)",
+      "Pyth Entropy integration for random NFT selection",
+      "APEReserveDeposited event when APE received",
+      "AutoPurchaseLoopCompleted event when loop completes"
+    ]
+  },
+  "upgrade_v1_8_0": {
+    "timestamp": "2026-01-25T00:00:00.000Z",
+    "oldImplementation": "0xc087bCcFF99431787d4C38bb3378d45726Dc7DE4",
+    "newImplementation": "0x22a82EBBC2BC26fAd59C932Dc2376667b056B06c",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "upgradeTxHash": "0x8c74bb17b43d1d7fb66977b3bf40cef7576a26a23080530f0066bd6bbdde4001",
+    "initTxHash": "0x40f22079e9ad3c0ad944f4caa8845e3bf123cb5d472080486ef9db6e874b42e2",
+    "relayerAddress": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "changes": [
+      "New revenue split: 0.5% APE to PokeballGame, 0.5% APE to SlabNFTManager",
+      "New revenue split: 96% USDC.e to NFT pool, 3% USDC.e to treasury",
+      "Gasless throws via throwBallFor() meta-transaction function",
+      "APE reserve management (totalAPEReserve, depositAPEReserve)",
+      "USDC to APE swap function for USDC.e purchases to fund reserves",
+      "Nonce tracking for replay protection (playerThrowNonces)",
+      "Relayer authorization system (onlyRelayerOrOwner)"
+    ]
+  },
+  "upgrade_v1_9_0": {
+    "timestamp": "2026-01-26T00:00:00.000Z",
+    "oldImplementation": "0x22a82EBBC2BC26fAd59C932Dc2376667b056B06c",
+    "newImplementation": "0x308c619d850fc3C38CD61dD286A2a6B4Fa387Ef4",
+    "upgrader": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "upgradeTxHash": "0x2625406ac5e76ef6a126dfecc7918db168cc50ac8e384f8300a9aaa6250f84af",
+    "initTxHash": "0x4351c3ee67e465ca95b77c1a8f505520408cf7a8fdb4daeb25c6234cd707c731",
+    "changes": [
+      "repositionPokemon(slot, newX, newY) - Move existing Pokemon without despawning",
+      "despawnPokemon(slot) - Remove Pokemon from a slot",
+      "maxActivePokemon - Owner-configurable soft cap on active spawns (max 20)",
+      "setMaxActivePokemon(newMax) - Adjust spawn density at runtime",
+      "getEffectiveMaxActivePokemon() - View current effective max",
+      "PokemonRepositioned, PokemonDespawned, MaxActivePokemonUpdated events",
+      "SlotNotOccupied, InvalidCoordinate, MaxActivePokemonExceeded, InvalidMaxActivePokemon errors"
+    ]
+  }
+}

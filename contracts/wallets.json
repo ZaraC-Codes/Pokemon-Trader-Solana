@@ -1,0 +1,11 @@
+{
+  "apechain": {
+    "chainId": 33139,
+    "network": "ApeChain Mainnet"
+  },
+  "wallets": {
+    "owner": "0x47c11427B9f0DF4e8bdB674f5e23C8E994befC06",
+    "treasury": "0x1D1d0E6eF415f2BAe0c21939c50Bc4ffBeb65c74",
+    "nftRevenue": "0x628376239B6ccb6F21d0a6E4196a18F98F86bd48"
+  }
+}

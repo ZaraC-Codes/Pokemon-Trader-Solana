@@ -1,0 +1,73 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Hardhat / Foundry build artifacts
+artifacts/
+cache/
+typechain/
+typechain-types/
+coverage/
+coverage.json
+
+# Windows reserved file names (can be created accidentally)
+NUL
+CON
+PRN
+AUX
+COM[1-9]
+LPT[1-9]
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.claude/
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Test files
+test-*.js
+check-*.js
+fetch-*.js
+*-test.js
+*.test.js
+*.spec.js
+
+# Output files that may contain sensitive data
+listings-output.txt
+*.output.txt
+*.output.json
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+.env.vercel
+*.key
+*.pem
+*private*
+*secret*
+*PRIVATE_KEY*
+*SECRET_KEY*
+
+# Temporary files
+*.tmp
+*.temp
+hooks.zip
+.vercel
+.env*.local

@@ -1,0 +1,666 @@
+[
+{
+"_inputs_": [],
+"name": "SlabMachineInitialized",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "MachineConfig",
+"outputs": [
+{
+"name": "maxPulls",
+"type": "uint256"
+},
+{
+"name": "buybackExpiry",
+"type": "uint256"
+},
+{
+"name": "buybackPercentage",
+"type": "uint256"
+},
+{
+"name": "minBuybackValue",
+"type": "uint256"
+},
+{
+"name": "usdcPullPrice",
+"type": "uint256"
+}
+],
+"type": "struct"
+},
+{
+"_inputs_": [],
+"name": "SlabMachineClosed",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [
+{
+"name": "_slabs",
+"type": "address"
+},
+{
+"name": "_close",
+"type": "bool"
+}
+],
+"name": "setClosed",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_rarityCalculator",
+"type": "address"
+}
+],
+"name": "setRarityCalculator",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_newMachineConfig",
+"type": "struct MachineConfig"
+}
+],
+"name": "setMachineConfig",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_amount",
+"type": "uint256"
+},
+{
+"name": "_tokenRecipient",
+"type": "address"
+},
+{
+"name": "_usdcRecipient",
+"type": "address"
+}
+],
+"name": "withdrawUSDC",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_tokenIds",
+"type": "uint256[]"
+}
+],
+"name": "withdrawCards",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_machineConfig",
+"type": "struct MachineConfig"
+}
+],
+"name": "setMachineConfig",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [],
+"name": "machineConfig",
+"outputs": [
+{
+"name": "maxPulls",
+"type": "uint256"
+},
+{
+"name": "buybackExpiry",
+"type": "uint256"
+},
+{
+"name": "buybackPercentage",
+"type": "uint256"
+},
+{
+"name": "minBuybackValue",
+"type": "uint256"
+},
+{
+"name": "usdcPullPrice",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_randomNumberGenerator",
+"type": "IRandomNumberGenerator"
+}
+],
+"name": "setRandomNumberGenerator",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [],
+"name": "SlabMachineIsClosed",
+"outputs": [],
+"type": "error"
+},
+{
+"_inputs_": [],
+"name": "SlabMachineIsShutdown",
+"outputs": [],
+"type": "error"
+},
+{
+"_inputs_": [
+{
+"name": "_amount",
+"type": "uint256"
+}
+],
+"name": "sellBack",
+"outputs": [
+{
+"name": "buybackAmount_",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_tokenId",
+"type": "uint256"
+}
+],
+"name": "sellBack",
+"outputs": [
+{
+"name": "buybackAmount_",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_tokenIds",
+"type": "uint256[]"
+}
+],
+"name": "sellBack",
+"outputs": [
+{
+"name": "buybackAmount_",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_seed",
+"type": "uint256"
+}
+],
+"name": "_determineRarity",
+"outputs": [
+{
+"name": "rarity_",
+"type": "SlabRarity"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [],
+"name": "SlabValueUpdated",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "SlabPulled",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "SlabMachineShutdown",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "SlabMachineInitialized",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [
+{
+"name": "_slabs",
+"type": "address"
+},
+{
+"name": "_usdc",
+"type": "address"
+},
+{
+"name": "_rarityCalculator",
+"type": "address"
+},
+{
+"name": "_machineConfig",
+"type": "struct MachineConfig"
+}
+],
+"name": "constructor",
+"outputs": [],
+"type": "constructor"
+},
+{
+"_inputs_": [
+{
+"name": "_tokenIds",
+"type": "uint256[]"
+},
+{
+"name": "_values",
+"type": "uint256[]"
+}
+],
+"name": "updateSlabValues",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_amount",
+"type": "uint256"
+}
+],
+"name": "pull",
+"outputs": [
+{
+"name": "requestId_",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_amount",
+"type": "uint256"
+},
+{
+"name": "_recipient",
+"type": "address"
+}
+],
+"name": "pull",
+"outputs": [
+{
+"name": "requestId_",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_amount",
+"type": "uint256"
+},
+{
+"name": "_recipient",
+"type": "address"
+}
+],
+"name": "_pull",
+"outputs": [
+{
+"name": "requestId_",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_requestId",
+"type": "uint256"
+},
+{
+"name": "_randomNumber",
+"type": "uint256[]"
+}
+],
+"name": "randomNumberCallback",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [],
+"name": "SlabDeposited",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [
+{
+"name": "_tokenId",
+"type": "uint256"
+},
+{
+"name": "_value",
+"type": "uint256"
+},
+{
+"name": "_rarity",
+"type": "SlabRarity"
+}
+],
+"name": "SlabDeposited",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "MachineRequest",
+"outputs": [
+{
+"name": "creator",
+"type": "address"
+},
+{
+"name": "slabs",
+"type": "uint256"
+},
+{
+"name": "complete",
+"type": "bool"
+},
+{
+"name": "recipient",
+"type": "address"
+},
+{
+"name": "requestId",
+"type": "uint256"
+}
+],
+"type": "struct"
+},
+{
+"_inputs_": [],
+"name": "SlabRarity",
+"outputs": [
+{
+"name": "COMMON",
+"type": "uint8"
+},
+{
+"name": "RARE",
+"type": "uint8"
+},
+{
+"name": "Epic",
+"type": "uint8"
+},
+{
+"name": "Legend",
+"type": "uint8"
+},
+{
+"name": "Legendary",
+"type": "uint8"
+}
+],
+"type": "enum"
+},
+{
+"_inputs_": [],
+"name": "BuybackOffer",
+"outputs": [
+{
+"name": "expired",
+"type": "bool"
+},
+{
+"name": "expiry",
+"type": "uint256"
+},
+{
+"name": "value",
+"type": "uint256"
+}
+],
+"type": "struct"
+},
+{
+"_inputs_": [],
+"name": "Slab",
+"outputs": [
+{
+"name": "tokenId",
+"type": "uint256"
+},
+{
+"name": "rarity",
+"type": "SlabRarity"
+},
+{
+"name": "value",
+"type": "uint256"
+}
+],
+"type": "struct"
+},
+{
+"_inputs_": [],
+"name": "machineConfig",
+"outputs": [
+{
+"name": "maxPulls",
+"type": "uint256"
+},
+{
+"name": "buybackExpiry",
+"type": "uint256"
+},
+{
+"name": "buybackPercentage",
+"type": "uint256"
+},
+{
+"name": "minBuybackValue",
+"type": "uint256"
+},
+{
+"name": "usdcPullPrice",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [],
+"name": "SlabMachineInitialized",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [
+{
+"name": "_machineConfig",
+"type": "struct MachineConfig"
+}
+],
+"name": "setMachineConfig",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_amount",
+"type": "uint256"
+}
+],
+"name": "SlabMachineClosed",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [
+{
+"name": "_machineConfig",
+"type": "struct MachineConfig"
+},
+{
+"name": "rarityCalculator",
+"type": "IRarityCalculator"
+},
+{
+"name": "usdc",
+"type": "IERC20"
+},
+{
+"name": "slabs",
+"type": "ISlab"
+}
+],
+"name": "constructor",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [
+{
+"name": "_amount",
+"type": "uint256"
+},
+{
+"name": "_values",
+"type": "uint256[]"
+}
+],
+"name": "deposit",
+"outputs": [],
+"type": "function"
+},
+{
+"_inputs_": [],
+"name": "SlabRemoved",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "SlabWithdrawn",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "machineConfig",
+"outputs": [
+{
+"name": "maxPulls",
+"type": "uint256"
+},
+{
+"name": "buybackExpiry",
+"type": "uint256"
+},
+{
+"name": "buybackPercentage",
+"type": "uint256"
+},
+{
+"name": "minBuybackValue",
+"type": "uint256"
+},
+{
+"name": "usdcPullPrice",
+"type": "uint256"
+}
+],
+"type": "function"
+},
+{
+"_inputs_": [],
+"name": "SlabDeposited",
+"outputs": [],
+"type": "event"
+},
+{
+"_inputs_": [],
+"name": "InvalidPullCount",
+"outputs": [],
+"type": "error"
+},
+{
+"_inputs_": [],
+"name": "InvalidRecipient",
+"outputs": [],
+"type": "error"
+},
+{
+"_inputs_": [],
+"name": "InvalidSender",
+"outputs": [],
+"type": "error"
+},
+{
+"_inputs_": [],
+"name": "MachineRequest",
+"outputs": [
+{
+"name": "creator",
+"type": "address"
+},
+{
+"name": "slabs",
+"type": "uint256"
+},
+{
+"name": "complete",
+"type": "bool"
+},
+{
+"name": "recipient",
+"type": "address"
+},
+{
+"name": "requestId",
+"type": "uint256"
+}
+],
+"type": "struct"
+}
+]
