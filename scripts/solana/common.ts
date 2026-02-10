@@ -3,7 +3,8 @@
  * Provides shared Anchor setup, PDA derivation, and helpers.
  */
 import * as anchor from "@coral-xyz/anchor";
-import { Program, BN } from "@coral-xyz/anchor";
+import type { Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { PublicKey, Keypair, Connection } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -104,7 +105,7 @@ export function makeVrfSeed(counter: number, requestType: number): Buffer {
  */
 export function formatTokenAmount(
   amount: BN | bigint | number,
-  decimals: number = 6
+  decimals: number = 9
 ): string {
   const num = typeof amount === "number" ? amount : Number(amount);
   return (num / Math.pow(10, decimals)).toFixed(decimals);

@@ -71,7 +71,7 @@ export const GACHA_API_KEY = requireEnv("GACHA_API_KEY");
 
 // Thresholds
 export const MIN_SOLBALLS_TO_SWAP = BigInt(
-  optionalEnv("MIN_SOLBALLS_TO_SWAP", String(100 * 1_000_000)) // 100 SolBalls
+  optionalEnv("MIN_SOLBALLS_TO_SWAP", String(100 * 1_000_000_000)) // 100 SolCatch (9 decimals)
 );
 export const PACK_COST_USDC = BigInt(
   optionalEnv("PACK_COST_USDC", String(50 * 1_000_000)) // $50 USDC

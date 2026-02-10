@@ -135,20 +135,20 @@ export async function runSwap(client: SolanaClient): Promise<SwapResult> {
   // 1. Check game SolBalls balance
   const gameBalance = await client.getGameSolballsBalance();
   console.log(
-    `  Game SolBalls balance: ${Number(gameBalance) / 1e6} SolBalls`
+    `  Game SolCatch balance: ${Number(gameBalance) / 1e9} SOLCATCH`
   );
 
   if (!shouldRunSwap(gameBalance)) {
     throw new Error(
-      `Game balance (${Number(gameBalance) / 1e6}) below threshold (${Number(MIN_SOLBALLS_TO_SWAP) / 1e6})`
+      `Game balance (${Number(gameBalance) / 1e9}) below threshold (${Number(MIN_SOLBALLS_TO_SWAP) / 1e9})`
     );
   }
 
   // 2. Withdraw SolBalls to backend wallet
-  // Leave a small buffer (1 SolBall) in case of rounding
-  const withdrawAmount = gameBalance - 1_000_000n;
+  // Leave a small buffer (1 SOLCATCH) in case of rounding
+  const withdrawAmount = gameBalance - 1_000_000_000n;
   console.log(
-    `  Withdrawing ${Number(withdrawAmount) / 1e6} SolBalls to backend wallet...`
+    `  Withdrawing ${Number(withdrawAmount) / 1e9} SOLCATCH to backend wallet...`
   );
 
   const withdrawTx = await client.withdrawRevenue(withdrawAmount);
@@ -164,7 +164,7 @@ export async function runSwap(client: SolanaClient): Promise<SwapResult> {
       ?.map((r: any) => r.swapInfo?.label || "unknown")
       .join(" -> ") || "direct";
 
-  console.log(`  Quote: ${Number(withdrawAmount) / 1e6} SolBalls -> ${Number(outAmount) / 1e6} USDC`);
+  console.log(`  Quote: ${Number(withdrawAmount) / 1e9} SOLCATCH -> ${Number(outAmount) / 1e6} USDC`);
   console.log(`  Route: ${routeLabel}`);
   console.log(`  Price impact: ${quote.priceImpactPct || "N/A"}%`);
 
@@ -282,7 +282,7 @@ export async function runRevenueProcessor(
   const gameBalance = await client.getGameSolballsBalance();
   if (!shouldRunSwap(gameBalance)) {
     console.log(
-      `[RevenueProcessor] Game balance (${Number(gameBalance) / 1e6} SolBalls) below threshold. Skipping.`
+      `[RevenueProcessor] Game balance (${Number(gameBalance) / 1e9} SOLCATCH) below threshold. Skipping.`
     );
     return null;
   }

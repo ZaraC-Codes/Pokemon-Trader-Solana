@@ -11,7 +11,7 @@
  *   # Show balance only (dry run):
  *   npx ts-node scripts/solana/withdraw-revenue.ts --status
  */
-import { BN } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 import { loadProgram, deriveGamePDAs, formatTokenAmount } from "./common";
 
@@ -37,7 +37,7 @@ async function main() {
       "  npx ts-node scripts/solana/withdraw-revenue.ts --all\n" +
       "  npx ts-node scripts/solana/withdraw-revenue.ts --status\n" +
       "\n" +
-      "Amount is in SolBalls atomic units (6 decimals, e.g. 1000000 = 1.0 SolBalls)"
+      "Amount is in SOLCATCH atomic units (9 decimals, e.g. 1000000000 = 1.0 SOLCATCH)"
     );
     process.exit(1);
   }

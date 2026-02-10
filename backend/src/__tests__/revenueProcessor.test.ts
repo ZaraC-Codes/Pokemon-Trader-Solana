@@ -25,7 +25,7 @@ function splitUsdcAmounts(
 
 function shouldRunSwap(
   currentSolBalls: bigint,
-  threshold: bigint = 100_000_000n
+  threshold: bigint = 100_000_000_000n // 100 SOLCATCH (9 decimals)
 ): boolean {
   return currentSolBalls >= threshold;
 }
@@ -85,15 +85,15 @@ describe("splitUsdcAmounts", () => {
 });
 
 describe("shouldRunSwap", () => {
-  const threshold = 100_000_000n; // 100 SolBalls
+  const threshold = 100_000_000_000n; // 100 SOLCATCH (9 decimals)
 
   it("returns true when balance >= threshold", () => {
-    expect(shouldRunSwap(100_000_000n, threshold)).toBe(true);
-    expect(shouldRunSwap(500_000_000n, threshold)).toBe(true);
+    expect(shouldRunSwap(100_000_000_000n, threshold)).toBe(true);
+    expect(shouldRunSwap(500_000_000_000n, threshold)).toBe(true);
   });
 
   it("returns false when balance < threshold", () => {
-    expect(shouldRunSwap(99_999_999n, threshold)).toBe(false);
+    expect(shouldRunSwap(99_999_999_999n, threshold)).toBe(false);
     expect(shouldRunSwap(0n, threshold)).toBe(false);
   });
 

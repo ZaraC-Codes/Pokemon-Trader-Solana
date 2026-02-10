@@ -55,8 +55,8 @@ export const NUM_BALL_TYPES = 4;
 export const VRF_TYPE_SPAWN = 0;
 export const VRF_TYPE_THROW = 1;
 
-// Token decimals
-export const SOLBALLS_DECIMALS = 6;
+// Token decimals (SolCatch mint uses 9 decimals)
+export const SOLBALLS_DECIMALS = 9;
 
 // ============================================================
 // BALL TYPES
@@ -72,10 +72,10 @@ export const BALL_NAMES: Record<BallType, string> = {
 };
 
 export const DEFAULT_BALL_PRICES: Record<BallType, number> = {
-  0: 1_000_000,    // 1.0 SolBalls
-  1: 10_000_000,   // 10.0 SolBalls
-  2: 25_000_000,   // 25.0 SolBalls
-  3: 49_900_000,   // 49.9 SolBalls
+  0: 1_000_000_000,    // 1.0 SolCatch (9 decimals)
+  1: 10_000_000_000,   // 10.0 SolCatch
+  2: 25_000_000_000,   // 25.0 SolCatch
+  3: 49_900_000_000,   // 49.9 SolCatch
 };
 
 export const DEFAULT_CATCH_RATES: Record<BallType, number> = {

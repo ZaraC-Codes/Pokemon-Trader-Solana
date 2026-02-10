@@ -2,10 +2,10 @@
 
 ## Project Overview
 
-Pokemon Trader is a 2D pixel art game on Solana (ported from ApeChain/EVM). Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolBalls as the payment token.
+Pokemon Trader is a 2D pixel art game on Solana (ported from ApeChain/EVM). Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolCatch (SOLCATCH) as the payment token.
 
 - **Version**: 0.1.0
-- **Status**: Solana program deployed to devnet, revenue processor backend implemented, frontend ported to Solana (builds successfully, migration QA complete)
+- **Status**: Solana program deployed & initialized on devnet, revenue processor backend implemented, frontend ported to Solana (builds successfully, migration QA complete)
 - **Network**: Solana Devnet (mainnet-beta planned)
 - **Program ID**: `B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ`
 - **Architecture Doc**: `docs/SOLANA_ARCHITECTURE.md` (v1.1)
@@ -27,10 +27,10 @@ Pokemon Trader is a 2D pixel art game on Solana (ported from ApeChain/EVM). User
 - **Vite 6.4.1** - Build tool and dev server
 - **@solana/wallet-adapter** - Wallet connection (Phantom, Solflare, Coinbase + auto-detect)
 - **@coral-xyz/anchor** - TypeScript client for Anchor programs
-- **Jupiter Terminal v3** - CDN-loaded swap widget (SolBalls acquisition)
+- **Jupiter Terminal v3** - CDN-loaded swap widget (SolCatch acquisition)
 
 ### Backend Services (`backend/`)
-- **Revenue Processor** - Node.js/Express service: monitors SolBalls revenue, swaps to USDC via Jupiter, splits revenue, triggers Gacha purchases, deposits NFTs into vault
+- **Revenue Processor** - Node.js/Express service: monitors SolCatch revenue, swaps to USDC via Jupiter, splits revenue, triggers Gacha purchases, deposits NFTs into vault
 - **Collector Crypt Gacha API** - REST API for NFT pack purchases
 - **@coral-xyz/anchor** + **@solana/web3.js** + **@solana/spl-token** - On-chain interactions
 - **Express 4** - Admin HTTP endpoints
@@ -59,13 +59,15 @@ anchor idl build -o target/idl/pokeball_game.json  # Generate IDL
 # Deploy to devnet
 solana program deploy target/deploy/pokeball_game.so --program-id target/deploy/pokeball_game-keypair.json
 
-# Admin Scripts
-npx ts-node scripts/solana/initialize.ts --treasury <PUBKEY> --solballs-mint <PUBKEY> --usdc-mint <PUBKEY>
-npx ts-node scripts/solana/spawn-pokemon.ts --slot 0
-npx ts-node scripts/solana/deposit-nft.ts --mint <NFT_MINT_PUBKEY>
-npx ts-node scripts/solana/check-state.ts
-npx ts-node scripts/solana/set-prices.ts --ball-type 0 --price 1000000
-npx ts-node scripts/solana/withdraw-revenue.ts --amount 100000000
+# Admin Scripts (require ANCHOR_PROVIDER_URL and ANCHOR_WALLET env vars)
+export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
+export ANCHOR_WALLET=~/.config/solana/id.json
+npx tsx scripts/solana/initialize.ts --treasury <PUBKEY> --solballs-mint <PUBKEY> --usdc-mint <PUBKEY>
+npx tsx scripts/solana/spawn-pokemon.ts --slot 0
+npx tsx scripts/solana/deposit-nft.ts --mint <NFT_MINT_PUBKEY>
+npx tsx scripts/solana/check-state.ts
+npx tsx scripts/solana/set-prices.ts --ball-type 0 --price 1000000000
+npx tsx scripts/solana/withdraw-revenue.ts --amount 1000000000
 ```
 
 ## Build Notes
@@ -102,8 +104,8 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │       │   ├── events.rs               # 14 events
 │       │   └── instructions/
 │       │       ├── mod.rs                   # Module re-exports
-│       │       ├── initialize.rs            # Create all PDAs + game SolBalls ATA
-│       │       ├── purchase_balls.rs        # Player buys balls with SolBalls tokens
+│       │       ├── initialize.rs            # Create all PDAs + game SolCatch ATA
+│       │       ├── purchase_balls.rs        # Player buys balls with SolCatch tokens
 │       │       ├── spawn_pokemon.rs         # VRF-based random spawn (authority)
 │       │       ├── force_spawn_pokemon.rs   # Direct spawn at coordinates (authority)
 │       │       ├── reposition_pokemon.rs    # Move Pokemon to new position (authority)
@@ -113,7 +115,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │       │       ├── deposit_nft.rs           # Deposit Metaplex NFT into vault (authority)
 │       │       ├── withdraw_nft.rs          # Withdraw NFT from vault (authority)
 │       │       ├── admin.rs                 # set_ball_price, set_catch_rate, set_max_active_pokemon
-│       │       └── withdraw_revenue.rs      # Withdraw SolBalls revenue (authority)
+│       │       └── withdraw_revenue.rs      # Withdraw SolCatch revenue (authority)
 │       └── target/                  # Build artifacts (gitignored except deploy/)
 │
 ├── target/                      # Anchor build output
@@ -147,7 +149,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   ├── deposit-nft.ts               # Deposit NFT into vault
 │   ├── check-state.ts               # Read and display all on-chain state
 │   ├── set-prices.ts                # Update ball prices / catch rates
-│   └── withdraw-revenue.ts          # Withdraw SolBalls revenue
+│   └── withdraw-revenue.ts          # Withdraw SolCatch revenue
 │
 ├── tests/                       # Anchor integration tests
 │   └── pokeball_game.ts             # Full test suite
@@ -167,7 +169,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   │   ├── usePurchaseBalls.ts          # purchase_balls instruction
 │   │   ├── useThrowBall.ts             # throw_ball instruction + VRF
 │   │   ├── usePokemonSpawns.ts          # Read PokemonSlots PDA
-│   │   ├── useSolBallsBalance.ts        # SolBalls token balance
+│   │   ├── useSolBallsBalance.ts        # SolCatch token balance
 │   │   ├── useSolanaEvents.ts           # WebSocket event listener
 │   │   └── useActiveWeb3React.ts        # Wallet adapter → { account }
 │   ├── components/                  # React UI components (rewritten for Solana)
@@ -202,8 +204,8 @@ B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ
 
 | Instruction | Signer | Description |
 |-------------|--------|-------------|
-| `initialize` | Authority | Create all PDAs + game SolBalls ATA. Set initial prices/rates. One-time. |
-| `purchase_balls` | Player | Transfer SolBalls to game account. Auto-creates PlayerInventory on first buy. |
+| `initialize` | Authority | Create all PDAs + game SolCatch ATA. Set initial prices/rates. One-time. |
+| `purchase_balls` | Player | Transfer SolCatch to game account. Auto-creates PlayerInventory on first buy. |
 | `spawn_pokemon` | Authority | Request ORAO VRF for random position. Creates VrfRequest PDA. |
 | `force_spawn_pokemon` | Authority | Spawn at specific (x, y) coordinates. No VRF needed. |
 | `reposition_pokemon` | Authority | Move existing Pokemon to new position. Resets throw attempts. |
@@ -215,7 +217,7 @@ B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ
 | `set_ball_price` | Authority | Update price for a ball tier. |
 | `set_catch_rate` | Authority | Update catch rate for a ball tier. |
 | `set_max_active_pokemon` | Authority | Update soft cap on active spawns (1-20). |
-| `withdraw_revenue` | Authority | Withdraw SolBalls from game token account. |
+| `withdraw_revenue` | Authority | Withdraw SolCatch from game token account. |
 
 ### Events (14)
 
@@ -266,14 +268,14 @@ B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ
 
 ### Ball System
 
-| Ball Type | Index | Default Price (SolBalls) | Catch Rate |
+| Ball Type | Index | Default Price (SOLCATCH) | Catch Rate |
 |-----------|-------|--------------------------|------------|
-| Poke Ball | 0 | 1.000000 | 2% |
-| Great Ball | 1 | 10.000000 | 20% |
-| Ultra Ball | 2 | 25.000000 | 50% |
-| Master Ball | 3 | 49.900000 | 99% |
+| Poke Ball | 0 | 1.0 | 2% |
+| Great Ball | 1 | 10.0 | 20% |
+| Ultra Ball | 2 | 25.0 | 50% |
+| Master Ball | 3 | 49.9 | 99% |
 
-Prices are in SolBalls atomic units (6 decimals). Configurable via `set_ball_price`.
+Prices are in SolCatch atomic units (9 decimals, 1 SOLCATCH = 1,000,000,000). Configurable via `set_ball_price`.
 
 ## ORAO VRF Integration
 
@@ -318,12 +320,35 @@ It must be deserialized from raw `AccountInfo` using `try_deserialize()`. It is 
 | **Program Rent** | ~3.73 SOL |
 | **Cluster** | `devnet` |
 
+### SolCatch Token (Devnet)
+
+| Detail | Value |
+|--------|-------|
+| **Mint Address** | `DCZFYnvkeXhkpx8CkXECNs3nFMUZG2iXSBxA7ozHKiPL` |
+| **Ticker** | SOLCATCH |
+| **Decimals** | 9 |
+| **Mint Authority** | `FLNticLtYTTzFmNLQ2oAExJWNqew929h2SrCgqy9LJER` |
+
+> Code variables still say `SOLBALLS_MINT` — this maps to the SolCatch mint address.
+
+### On-Chain PDAs (Devnet, Initialized)
+
+| PDA | Address |
+|-----|---------|
+| GameConfig | `6zBFA67eq6Zst2EfD2ojFQ4VcS5FAGNggKaQ1ndPieTB` |
+| PokemonSlots | `HjtUSgqw1PnveogdcdSwCTtcUdhcKBZhokqe7q8VgoAm` |
+| NftVault | `HsrZJEGNaM3zwZtwyYR7KeLypKNXngNM7gAFB8Pgru7Z` |
+| TreasuryConfig | `Hy9xsD9i5cDuS6z69gk3VydArBecyMnTkvHxLeFxmit` |
+| Game SolCatch ATA | `35bJfktpueU4ezhk3BgmW3yV7aChp5asUZhVYM8HJUqW` |
+
 ### Wallet Addresses
 
 | Role | Address | Notes |
 |------|---------|-------|
 | **Deploy Authority (WSL)** | `FLNticLtYTTzFmNLQ2oAExJWNqew929h2SrCgqy9LJER` | WSL-generated keypair at `~/.config/solana/id.json` |
 | **User Phantom** | `4tzBtNgWQxSWqh5dAKh3cPwkbJwzPFi82FCk8KUw2dLq` | Test wallet |
+| **Owner SolCatch ATA** | `52wkbUnqLBjDgpgkEHbf5PMwh6qt87qxtVhYQTPvEgY3` | 900,000 SOLCATCH |
+| **Tester SolCatch ATA** | `H14oa5d8RAUj3VqRUDu5PBK1pKz37CzYPrw1yw61p3nx` | 100,000 SOLCATCH |
 
 ### Build Environment (WSL)
 
@@ -339,11 +364,11 @@ It must be deserialized from raw `AccountInfo` using `try_deserialize()`. It is 
 
 ### Revenue Flow
 ```
-Player pays SolBalls → on-chain game token account
+Player pays SOLCATCH → on-chain game token account
                            ↓
          Revenue Processor (backend, off-chain)
                            ↓
-              Jupiter API: swap SolBalls → USDC
+              Jupiter API: swap SOLCATCH → USDC
                            ↓
           Split: 3% treasury / 96% NFT pool / 1% reserves
                            ↓
@@ -364,35 +389,39 @@ Player pays SolBalls → on-chain game token account
 
 ### Jupiter Aggregator
 - **API**: `https://lite-api.jup.ag/swap/v1`
-- **Usage**: Off-chain SolBalls → USDC swap (revenue processor)
-- **Frontend**: Jupiter Plugin widget for players to acquire SolBalls
-- **Note**: SolBalls launched via Bankr on Raydium — liquidity pool exists from day one
+- **Usage**: Off-chain SOLCATCH → USDC swap (revenue processor)
+- **Frontend**: Jupiter Terminal v3 widget for players to acquire SOLCATCH
+- **Note**: SOLCATCH launched via Bankr on Raydium — liquidity pool exists from day one
 
 ## Admin Scripts
 
-All scripts use Anchor's provider from `Anchor.toml` or `ANCHOR_WALLET` env var.
+All scripts require `ANCHOR_PROVIDER_URL` and `ANCHOR_WALLET` env vars, and use `tsx` as the TypeScript runner (ESM-compatible).
 
 ```bash
-# Initialize game (one-time)
-npx ts-node scripts/solana/initialize.ts \
+# Set env vars first
+export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
+export ANCHOR_WALLET=~/.config/solana/id.json
+
+# Initialize game (one-time, already done on devnet)
+npx tsx scripts/solana/initialize.ts \
   --treasury <TREASURY_PUBKEY> \
-  --solballs-mint <SOLBALLS_MINT> \
-  --usdc-mint <USDC_MINT>
+  --solballs-mint DCZFYnvkeXhkpx8CkXECNs3nFMUZG2iXSBxA7ozHKiPL \
+  --usdc-mint Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr
 
 # Spawn Pokemon (VRF-based random position)
-npx ts-node scripts/solana/spawn-pokemon.ts --slot 0
+npx tsx scripts/solana/spawn-pokemon.ts --slot 0
 
 # Deposit NFT into vault
-npx ts-node scripts/solana/deposit-nft.ts --mint <NFT_MINT_PUBKEY>
+npx tsx scripts/solana/deposit-nft.ts --mint <NFT_MINT_PUBKEY>
 
 # Check all on-chain state
-npx ts-node scripts/solana/check-state.ts
+npx tsx scripts/solana/check-state.ts
 
-# Update ball prices
-npx ts-node scripts/solana/set-prices.ts --ball-type 0 --price 2000000
+# Update ball prices (9 decimals: 1000000000 = 1 SOLCATCH)
+npx tsx scripts/solana/set-prices.ts --ball-type 0 --price 2000000000
 
-# Withdraw SolBalls revenue
-npx ts-node scripts/solana/withdraw-revenue.ts --amount 100000000
+# Withdraw SOLCATCH revenue (9 decimals)
+npx tsx scripts/solana/withdraw-revenue.ts --amount 1000000000
 ```
 
 ## Key Technical Notes
@@ -427,7 +456,7 @@ See `.env.example` for the complete template. Key variables:
 | `POKEBALL_GAME_PROGRAM_ID` | Deployed program ID |
 | `SOLANA_CLUSTER` | `devnet` or `mainnet-beta` |
 | `SOLANA_RPC_URL` | RPC endpoint |
-| `SOLBALLS_MINT` | SolBalls SPL token mint |
+| `SOLBALLS_MINT` | SolCatch SPL token mint (devnet: `DCZFYnvkeXhkpx8CkXECNs3nFMUZG2iXSBxA7ozHKiPL`) |
 | `USDC_MINT` | USDC SPL token mint |
 | `TREASURY_WALLET` | Treasury pubkey for fees |
 | `GACHA_API_URL` | Collector Crypt Gacha endpoint |
@@ -436,7 +465,7 @@ See `.env.example` for the complete template. Key variables:
 | `ANCHOR_WALLET` | Path to authority keypair |
 | `BACKEND_WALLET_PRIVATE_KEY` | Backend wallet (base58, JSON array, or keypair path) |
 | `ADMIN_API_KEY` | Shared secret for backend admin endpoints |
-| `MIN_SOLBALLS_TO_SWAP` | Threshold to trigger swap (atomic units) |
+| `MIN_SOLBALLS_TO_SWAP` | Threshold to trigger swap (atomic units, 9 decimals) |
 | `PACK_COST_USDC` | Gacha pack cost (atomic units, default 50M = $50) |
 | `VITE_POKEBALL_GAME_PROGRAM_ID` | Program ID for frontend |
 | `VITE_SOLANA_CLUSTER` | Cluster for frontend wallet adapter |
@@ -464,7 +493,7 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 | `usePurchaseBalls` | Calls `purchase_balls` instruction |
 | `useThrowBall` | Calls `throw_ball` instruction with VRF seed |
 | `usePokemonSpawns` | Reads `PokemonSlots` PDA, returns active spawns |
-| `useSolBallsBalance` | Reads player's SolBalls token account balance |
+| `useSolBallsBalance` | Reads player's SolCatch token account balance |
 | `useSolanaEvents` | WebSocket event listener for Anchor program events |
 | `useCaughtPokemonEvents` / `useFailedCatchEvents` / `useBallPurchasedEvents` | Typed event hooks (built on `useSolanaEvents`) |
 
@@ -472,8 +501,8 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 
 | Component | Key Changes |
 |-----------|-------------|
-| `PokeBallShop` | SolBalls-only (no APE/USDC toggle), no approval step, Jupiter swap button |
-| `SwapWidget` | Jupiter Terminal v3 integration (CDN), output locked to SolBalls |
+| `PokeBallShop` | SolCatch-only (no APE/USDC toggle), no approval step, Jupiter swap button |
+| `SwapWidget` | Jupiter Terminal v3 integration (CDN), output locked to SolCatch |
 | `CatchAttemptModal` | Direct tx via `useThrowBall`, Solana Explorer links |
 | `CatchWinModal` | Solana Explorer links, no EVM NFT metadata fetching |
 | `CatchResultModal` | Solana Explorer links |
@@ -530,7 +559,7 @@ All endpoints (except `/health`) require `X-ADMIN-KEY` header.
 
 ### Cron Pipeline (every 5 min)
 
-1. **Phase 1 — Revenue**: Check game SolBalls balance >= threshold → `withdraw_revenue` → Jupiter swap to USDC → split (3% treasury / 96% NFT pool / 1% SOL reserve)
+1. **Phase 1 — Revenue**: Check game SOLCATCH balance >= threshold → `withdraw_revenue` → Jupiter swap to USDC → split (3% treasury / 96% NFT pool / 1% SOL reserve)
 2. **Phase 2 — Gacha**: Check NFT pool USDC >= pack cost AND vault not full → Gacha API `generatePack` → sign/submit → `openPack` → `deposit_nft`
 
 ### Key Files
@@ -556,7 +585,8 @@ All endpoints (except `/health`) require `X-ADMIN-KEY` header.
 - Strict mode enabled
 - Interfaces for all props and state
 - Functional React components with hooks
-- Admin scripts use `@coral-xyz/anchor` + `@solana/web3.js`
+- Admin scripts use `@coral-xyz/anchor` + `@solana/web3.js`, run with `npx tsx` (ESM)
+- Import `BN` from `bn.js` (not from `@coral-xyz/anchor` — ESM named export issue)
 
 ### Styling
 - Inline pixel art styles with `imageRendering: 'pixelated'`

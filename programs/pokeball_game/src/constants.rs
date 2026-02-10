@@ -28,12 +28,13 @@ pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const VRF_REQ_SEED: &[u8] = b"vrf_req";
 pub const GAME_SOLBALLS_SEED: &[u8] = b"game_solballs";
 
-/// Default ball prices in SolBalls atomic units (placeholder — admin configurable)
+/// Default ball prices in SolCatch atomic units (placeholder — admin configurable)
+/// SolCatch uses 9 decimals: 1 SOLCATCH = 1_000_000_000 atomic units
 pub const DEFAULT_BALL_PRICES: [u64; 4] = [
-    1_000_000,    // Poke Ball: 1 SolBalls (assuming 6 decimals)
-    10_000_000,   // Great Ball: 10 SolBalls
-    25_000_000,   // Ultra Ball: 25 SolBalls
-    49_900_000,   // Master Ball: 49.90 SolBalls
+    1_000_000_000,    // Poke Ball: 1 SOLCATCH
+    10_000_000_000,   // Great Ball: 10 SOLCATCH
+    25_000_000_000,   // Ultra Ball: 25 SOLCATCH
+    49_900_000_000,   // Master Ball: 49.90 SOLCATCH
 ];
 
 /// Default catch rates (percent, 0-100)

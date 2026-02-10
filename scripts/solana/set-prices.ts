@@ -2,14 +2,14 @@
  * Update ball prices and catch rates.
  *
  * Usage:
- *   # Set a single ball price (SolBalls, 6 decimals):
- *   npx ts-node scripts/solana/set-prices.ts --ball-price 0 2000000
+ *   # Set a single ball price (SOLCATCH, 9 decimals):
+ *   npx ts-node scripts/solana/set-prices.ts --ball-price 0 2000000000
  *
  *   # Set a single catch rate (0-100):
  *   npx ts-node scripts/solana/set-prices.ts --catch-rate 0 5
  *
  *   # Set all prices at once (Poke, Great, Ultra, Master):
- *   npx ts-node scripts/solana/set-prices.ts --all-prices 1000000,10000000,25000000,49900000
+ *   npx ts-node scripts/solana/set-prices.ts --all-prices 1000000000,10000000000,25000000000,49900000000
  *
  *   # Set all catch rates at once:
  *   npx ts-node scripts/solana/set-prices.ts --all-rates 2,20,50,99
@@ -84,7 +84,7 @@ async function main() {
       "  npx ts-node scripts/solana/set-prices.ts --max-pokemon <1-20>\n" +
       "\n" +
       "Ball types: 0=Poke, 1=Great, 2=Ultra, 3=Master\n" +
-      "Prices are in SolBalls atomic units (6 decimals, e.g. 1000000 = 1.0 SolBalls)\n" +
+      "Prices are in SOLCATCH atomic units (9 decimals, e.g. 1000000000 = 1.0 SOLCATCH)\n" +
       "Catch rates are 0-100 (percent)"
     );
     process.exit(1);

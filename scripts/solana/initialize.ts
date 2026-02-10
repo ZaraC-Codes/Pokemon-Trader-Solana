@@ -10,7 +10,7 @@
  *     --usdc-mint <PUBKEY>
  */
 import * as anchor from "@coral-xyz/anchor";
-import { BN } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -50,12 +50,12 @@ async function main() {
   const solballsMintPubkey = new PublicKey(solballsMint);
   const usdcMintPubkey = new PublicKey(usdcMint);
 
-  // Default ball prices (6-decimal SolBalls atomic units)
+  // Default ball prices (9-decimal SOLCATCH atomic units)
   const ballPrices = [
-    new BN(1_000_000),   // Poke Ball: 1 SolBalls
-    new BN(10_000_000),  // Great Ball: 10 SolBalls
-    new BN(25_000_000),  // Ultra Ball: 25 SolBalls
-    new BN(49_900_000),  // Master Ball: 49.90 SolBalls
+    new BN(1_000_000_000),   // Poke Ball: 1 SOLCATCH
+    new BN(10_000_000_000),  // Great Ball: 10 SOLCATCH
+    new BN(25_000_000_000),  // Ultra Ball: 25 SOLCATCH
+    new BN(49_900_000_000),  // Master Ball: 49.90 SOLCATCH
   ];
 
   // Default catch rates (percent)
