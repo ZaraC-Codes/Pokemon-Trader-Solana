@@ -10,13 +10,13 @@ Before testing, ensure:
 2. **Environment variables** set in `.env`:
    ```
    VITE_POKEBALL_GAME_PROGRAM_ID=B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ
-   VITE_SOLANA_CLUSTER=devnet
+   VITE_SOLANA_NETWORK=devnet
    VITE_SOLANA_RPC_URL=https://api.devnet.solana.com
-   VITE_SOLBALLS_MINT=<your devnet SolBalls mint>
+   VITE_SOLBALLS_MINT=DCZFYnvkeXhkpx8CkXECNs3nFMUZG2iXSBxA7ozHKiPL
    ```
-3. **Anchor program initialized** on devnet (run `npx ts-node scripts/solana/initialize.ts`)
-4. **At least 1 Pokemon spawned** (run `npx ts-node scripts/solana/spawn-pokemon.ts --slot 0`)
-5. **At least 1 NFT deposited** into vault (run `npx ts-node scripts/solana/deposit-nft.ts --mint <MINT>`)
+3. **Anchor program initialized** on devnet (run `npx tsx scripts/solana/initialize.ts`)
+4. **At least 1 Pokemon spawned** (run `npx tsx scripts/solana/spawn-pokemon.ts --slot 0`)
+5. **At least 1 NFT deposited** into vault (run `npx tsx scripts/solana/deposit-nft.ts --mint <MINT>`)
 6. **Frontend running** (`npm run dev` at http://localhost:5173)
 
 ## Scenario A: New Player, No Assets
@@ -171,7 +171,7 @@ curl -H "X-ADMIN-KEY: <your-key>" http://localhost:3001/status
 
 ### C3. Check On-Chain State
 ```bash
-npx ts-node scripts/solana/check-state.ts
+npx tsx scripts/solana/check-state.ts
 ```
 **Expected**: Prints GameConfig, PokemonSlots, NftVault state without errors
 

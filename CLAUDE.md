@@ -468,7 +468,7 @@ See `.env.example` for the complete template. Key variables:
 | `MIN_SOLBALLS_TO_SWAP` | Threshold to trigger swap (atomic units, 9 decimals) |
 | `PACK_COST_USDC` | Gacha pack cost (atomic units, default 50M = $50) |
 | `VITE_POKEBALL_GAME_PROGRAM_ID` | Program ID for frontend |
-| `VITE_SOLANA_CLUSTER` | Cluster for frontend wallet adapter |
+| `VITE_SOLANA_NETWORK` | Network for frontend wallet adapter (`devnet` or `mainnet-beta`) |
 
 ## Frontend (Ported to Solana)
 
