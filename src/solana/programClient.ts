@@ -288,7 +288,7 @@ export async function throwBall(
 
   console.log('[programClient] vrfSeed hex:', vrfSeed.toString('hex'));
 
-  // ORAO VRF accounts
+  // ORAO VRF network state PDA
   const [vrfConfig] = PublicKey.findProgramAddressSync(
     [Buffer.from('orao-vrf-network-configuration')],
     ORAO_VRF_PROGRAM_ID
@@ -300,11 +300,12 @@ export async function throwBall(
     ORAO_VRF_PROGRAM_ID
   );
 
-  // ORAO treasury
-  const [vrfTreasury] = PublicKey.findProgramAddressSync(
-    [Buffer.from('orao-vrf-treasury')],
-    ORAO_VRF_PROGRAM_ID
-  );
+  // Read ORAO VRF treasury from the NetworkState account.
+  // Layout: 8-byte discriminator + 32-byte authority + 32-byte treasury
+  // So treasury pubkey is at bytes 40..72.
+  const vrfConfigInfo = await connection.getAccountInfo(vrfConfig);
+  if (!vrfConfigInfo) throw new Error('ORAO VRF network state not found on this cluster');
+  const vrfTreasury = new PublicKey(vrfConfigInfo.data.subarray(40, 72));
 
   console.log('[programClient] throwBall accounts:', {
     player: wallet.publicKey.toBase58(),
@@ -318,14 +319,9 @@ export async function throwBall(
     oraoVrf: ORAO_VRF_PROGRAM_ID.toBase58(),
   });
 
-  console.log('[programClient] counterBytes hex:', counterBytes.toString('hex'));
-  console.log('[programClient] vrfRequest PDA (client-derived):', vrfRequestPDA.toBase58());
-
   console.log('[programClient] sending throwBall transaction...');
-  // Let Anchor 0.30 auto-resolve PDA accounts that have seeds defined in the IDL
-  // (gameConfig, pokemonSlots, playerInventory, vrfRequest, vrfConfig).
-  // Only pass accounts without PDA seeds (vrfRandomness, vrfTreasury) and the signer.
-  // orao_vrf has a fixed address in the IDL and system_program is auto-resolved.
+  // Let Anchor 0.30 auto-resolve PDA accounts with seeds defined in the IDL.
+  // Only pass accounts without IDL PDA seeds: player (signer), vrfRandomness, vrfTreasury.
   const tx = await program.methods
     .throwBall(slotIndex, ballType)
     .accounts({
