@@ -350,6 +350,14 @@ function AppContent() {
         pokemonId: result.pokemonId,
         attemptsRemaining: result.attemptsRemaining ?? 0,
       });
+    } else if (result.status === 'error') {
+      // Throw flow errored (e.g., consume_randomness failed, user cancelled, network issue).
+      // Clean up selected pokemon so modal can be reopened.
+      setSelectedPokemon(null);
+
+      const errMsg = result.errorMessage || 'Throw failed. Please try again.';
+      addToast(errMsg, 'warning');
+      console.error('[App] ThrowResult error:', errMsg);
     }
   }, [addToast]);
 

@@ -6,7 +6,7 @@
  */
 
 import { Program, AnchorProvider, type Idl, BN } from '@coral-xyz/anchor';
-import { Connection, PublicKey, type TransactionSignature, SystemProgram, SYSVAR_RENT_PUBKEY, VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, type TransactionSignature, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
   TOKEN_PROGRAM_ID,
@@ -352,11 +352,14 @@ export async function throwBall(
 /**
  * Call consume_randomness with automatic retry until VRF is fulfilled.
  *
- * ORAO VRF fulfills randomness sub-second, but we can't reliably parse the
- * raw Borsh-serialized enum to check fulfillment status. Instead, we:
- *   1. Build a raw Transaction for simulation (no wallet popup)
- *   2. Use connection.simulateTransaction in a retry loop
- *   3. Once simulation succeeds, send the real tx via .rpc() (one wallet popup)
+ * Strategy: ORAO VRF fulfills sub-second, so we add a short initial delay
+ * then send via .rpc() directly. If VrfNotFulfilled, we wait and retry.
+ * Simulation is used only as a pre-check to avoid unnecessary wallet popups.
+ *
+ * Flow:
+ *   1. Wait for initial delay (VRF should be fulfilled by then)
+ *   2. Try .rpc() — one wallet popup
+ *   3. If VrfNotFulfilled, wait and retry (up to timeout)
  */
 export async function consumeRandomnessWithRetry(
   connection: Connection,
@@ -404,7 +407,7 @@ export async function consumeRandomnessWithRetry(
     rent: SYSVAR_RENT_PUBKEY,
   };
 
-  console.log('[programClient] consumeRandomnessWithRetry accounts:', {
+  console.log('[programClient] consumeRandomnessWithRetry started', {
     payer: wallet.publicKey.toBase58(),
     gameConfig: gameConfigPDA.toBase58(),
     pokemonSlots: pokemonSlotsPDA.toBase58(),
@@ -414,8 +417,11 @@ export async function consumeRandomnessWithRetry(
     playerInventory: playerInventoryPDA?.toBase58() ?? 'null',
   });
 
-  // ---- Phase 1: Simulate in a loop until VRF is fulfilled ----
-  // Use raw simulateTransaction with sigVerify:false (no wallet popup needed)
+  // Short initial delay — ORAO VRF fulfills sub-second, but let's give it a moment
+  console.log('[programClient] waiting 2s for ORAO VRF fulfillment...');
+  await new Promise((r) => setTimeout(r, 2_000));
+
+  // ---- Send the transaction with retries ----
   const start = Date.now();
   let attempt = 0;
   let lastError: Error | null = null;
@@ -423,82 +429,47 @@ export async function consumeRandomnessWithRetry(
   while (Date.now() - start < timeoutMs) {
     attempt++;
     try {
-      console.log(`[programClient] consumeRandomness simulate attempt ${attempt}...`);
+      console.log(`[programClient] consumeRandomness .rpc() attempt ${attempt}...`);
 
-      // Build a Transaction object for simulation
-      const tx = await program.methods
+      const txSig = await program.methods
         .consumeRandomness()
         .accounts(accounts)
-        .transaction();
+        .rpc();
 
-      tx.feePayer = wallet.publicKey;
-      const { blockhash } = await connection.getLatestBlockhash();
-      tx.recentBlockhash = blockhash;
-
-      // Simulate without signature verification (no wallet popup)
-      const messageV0 = tx.compileMessage();
-      const vtx = new VersionedTransaction(messageV0);
-
-      const simResult = await connection.simulateTransaction(vtx, {
-        sigVerify: false,
-        commitment: 'confirmed',
-      });
-
-      if (simResult.value.err) {
-        // Check if it's VrfNotFulfilled (custom error code 6020 = 0x1784)
-        const errStr = JSON.stringify(simResult.value.err);
-        console.log(`[programClient] simulation error:`, errStr);
-
-        if (errStr.includes('6020') || errStr.includes('VrfNotFulfilled')) {
-          console.log(`[programClient] VRF not fulfilled yet (attempt ${attempt}), retrying in ${retryIntervalMs}ms...`);
-          await new Promise((r) => setTimeout(r, retryIntervalMs));
-          continue;
-        }
-
-        // Any other simulation error — log details and throw
-        if (simResult.value.logs) {
-          console.error('[programClient] simulation logs:', simResult.value.logs);
-        }
-        throw new Error(`consumeRandomness simulation failed: ${errStr}`);
-      }
-
-      // Simulation succeeded — VRF is fulfilled
-      console.log(`[programClient] consumeRandomness simulation succeeded on attempt ${attempt}`);
-      if (simResult.value.logs) {
-        console.log('[programClient] simulation logs:', simResult.value.logs);
-      }
-      break;
+      console.log('[programClient] consumeRandomness tx confirmed:', txSig);
+      return txSig;
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
       const msg = lastError.message;
 
-      // Handle VrfNotFulfilled from Anchor-wrapped errors too
-      if (msg.includes('VrfNotFulfilled') || msg.includes('6020') || msg.includes('0x1784')) {
-        console.log(`[programClient] VRF not fulfilled yet (attempt ${attempt}), retrying in ${retryIntervalMs}ms...`);
+      console.log(`[programClient] consumeRandomness attempt ${attempt} error:`, msg);
+
+      // Check if VRF not fulfilled yet — retry
+      if (
+        msg.includes('VrfNotFulfilled') ||
+        msg.includes('6020') ||
+        msg.includes('0x1784') ||
+        msg.includes('custom program error: 0x1784')
+      ) {
+        console.log(`[programClient] VRF not fulfilled yet, retrying in ${retryIntervalMs}ms...`);
         await new Promise((r) => setTimeout(r, retryIntervalMs));
         continue;
       }
 
-      // Non-retryable error
-      console.error(`[programClient] consumeRandomness simulation failed (attempt ${attempt}):`, msg);
+      // User rejected the wallet popup — not retryable
+      if (msg.includes('User rejected') || msg.includes('rejected')) {
+        console.error('[programClient] User rejected consume_randomness transaction');
+        throw new Error('Transaction cancelled by user');
+      }
+
+      // Any other error — log and throw
+      console.error(`[programClient] consumeRandomness failed (non-retryable):`, msg);
       throw lastError;
     }
   }
 
-  // Check if we timed out
-  if (Date.now() - start >= timeoutMs) {
-    throw new Error(`VRF fulfillment timeout after ${attempt} attempts: ${lastError?.message ?? 'unknown'}`);
-  }
-
-  // ---- Phase 2: Send the real transaction (one wallet popup) ----
-  console.log('[programClient] sending consumeRandomness transaction via .rpc()...');
-  const txSig = await program.methods
-    .consumeRandomness()
-    .accounts(accounts)
-    .rpc();
-
-  console.log('[programClient] consumeRandomness tx confirmed:', txSig);
-  return txSig;
+  // Timed out
+  throw new Error(`VRF fulfillment timeout after ${attempt} attempts: ${lastError?.message ?? 'unknown'}`);
 }
 
 // ============================================================
