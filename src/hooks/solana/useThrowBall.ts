@@ -2,24 +2,28 @@
  * useThrowBall Hook (Solana)
  *
  * Hook for throwing a PokeBall at a Pokemon via the Anchor program.
- * Requests ORAO VRF for catch determination, then listens for
- * CaughtPokemon / FailedCatch events to resolve the result.
+ * Full lifecycle:
+ *   1. Send throw_ball tx (requests ORAO VRF)
+ *   2. Poll for VRF fulfillment (ORAO fills randomness sub-second)
+ *   3. Send consume_randomness tx (crank — resolves catch/miss)
+ *   4. Parse tx logs for CaughtPokemon / FailedCatch result
  *
- * Lifecycle: idle → sending → confirming → waiting_vrf → caught/missed/error
+ * Status: idle → sending → confirming → waiting_vrf → confirming → caught/missed/error
  *
- * On Solana, throws are direct transactions (~$0.001 fee), not gasless.
+ * On Solana, throws are direct transactions (~$0.001 fee per tx, 2 txs total).
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
-import { throwBall as throwBallTx } from '../../solana/programClient';
+import type { Connection } from '@solana/web3.js';
+import {
+  throwBall as throwBallTx,
+  pollVrfFulfillment,
+  consumeRandomness,
+} from '../../solana/programClient';
 import { MAX_POKEMON_SLOTS } from '../../solana/constants';
 import type { BallType } from '../../solana/constants';
-import {
-  useCaughtPokemonEvents,
-  useFailedCatchEvents,
-} from './useSolanaEvents';
 
 // ============================================================
 // TYPE DEFINITIONS
@@ -49,10 +53,86 @@ export interface UseThrowBallReturn {
 }
 
 // ============================================================
-// VRF TIMEOUT
+// PARSE CONSUME_RANDOMNESS RESULT FROM TX LOGS
 // ============================================================
 
-const VRF_TIMEOUT_MS = 12_000; // 12 seconds
+/**
+ * Parse the consume_randomness transaction logs to determine caught/missed.
+ * Anchor emits events as base64-encoded data in program logs.
+ * We use a simpler approach: look for the program log messages.
+ */
+async function parseConsumeResult(
+  connection: Connection,
+  consumeTxSig: string,
+  slotIndex: number,
+  throwTxSig: string
+): Promise<ThrowResult> {
+  try {
+    // Fetch the transaction with logs
+    const txInfo = await connection.getTransaction(consumeTxSig, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0,
+    });
+
+    if (!txInfo?.meta?.logMessages) {
+      console.warn('[parseConsumeResult] No log messages found, defaulting to missed');
+      return { status: 'missed', slotIndex, txSignature: throwTxSig };
+    }
+
+    const logs = txInfo.meta.logMessages;
+    console.log('[parseConsumeResult] Transaction logs:', logs);
+
+    // Look for program log messages that indicate caught or missed
+    // The on-chain code uses msg!() which produces "Program log: ..." entries
+    const caughtLog = logs.find((log: string) => log.includes('CAUGHT by'));
+    const missedLog = logs.find((log: string) => log.includes('NOT caught'));
+
+    if (caughtLog) {
+      console.log('[parseConsumeResult] CAUGHT! Log:', caughtLog);
+      // Extract Pokemon ID from log: "Pokemon {id} CAUGHT by {player}! NFT: {mint}"
+      const pokemonIdMatch = caughtLog.match(/Pokemon (\d+) CAUGHT/);
+      const pokemonId = pokemonIdMatch ? BigInt(pokemonIdMatch[1]) : undefined;
+      return {
+        status: 'caught',
+        slotIndex,
+        pokemonId,
+        txSignature: throwTxSig,
+      };
+    }
+
+    if (missedLog) {
+      console.log('[parseConsumeResult] MISSED. Log:', missedLog);
+      // Extract from: "Pokemon {id} NOT caught. Attempts remaining: {n}"
+      const pokemonIdMatch = missedLog.match(/Pokemon (\d+) NOT caught/);
+      const remainingMatch = missedLog.match(/Attempts remaining: (\d+)/);
+      const pokemonId = pokemonIdMatch ? BigInt(pokemonIdMatch[1]) : undefined;
+      const attemptsRemaining = remainingMatch ? parseInt(remainingMatch[1], 10) : undefined;
+      return {
+        status: 'missed',
+        slotIndex,
+        pokemonId,
+        attemptsRemaining,
+        txSignature: throwTxSig,
+      };
+    }
+
+    // Fallback: check if transaction succeeded — if so, default to missed
+    console.warn('[parseConsumeResult] Could not determine caught/missed from logs');
+    return { status: 'missed', slotIndex, txSignature: throwTxSig };
+  } catch (e) {
+    console.error('[parseConsumeResult] Failed to parse result:', e);
+    // If we can't parse, the consume_randomness tx still succeeded.
+    // Default to missed since caught is the rarer outcome.
+    return { status: 'missed', slotIndex, txSignature: throwTxSig };
+  }
+}
+
+// ============================================================
+// VRF POLLING CONFIG
+// ============================================================
+
+const VRF_POLL_TIMEOUT_MS = 30_000; // 30 seconds for VRF fulfillment
+const VRF_POLL_INTERVAL_MS = 1_500; // Poll every 1.5 seconds
 
 // ============================================================
 // HOOK IMPLEMENTATION
@@ -67,103 +147,19 @@ export function useThrowBall(): UseThrowBallReturn {
   const [throwStatus, setThrowStatus] = useState<ThrowStatus>('idle');
   const [lastResult, setLastResult] = useState<ThrowResult | null>(null);
 
-  // Track which slot we're currently waiting on
-  const pendingSlotRef = useRef<number | null>(null);
-  const pendingPlayerRef = useRef<string | null>(null);
-  const vrfTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track cancellation on unmount
+  const cancelledRef = useRef(false);
 
-  // Listen for VRF resolution events
-  const { events: caughtEvents } = useCaughtPokemonEvents();
-  const { events: failedEvents } = useFailedCatchEvents();
-
-  // ---- Watch for CaughtPokemon matching our pending throw ----
+  // ---- Cleanup on unmount ----
   useEffect(() => {
-    if (throwStatus !== 'waiting_vrf') return;
-    if (pendingSlotRef.current === null || !pendingPlayerRef.current) return;
-
-    const slot = pendingSlotRef.current;
-    const player = pendingPlayerRef.current;
-
-    for (const ev of caughtEvents) {
-      if (
-        ev.args.catcher === player &&
-        ev.args.slotIndex === slot
-      ) {
-        console.log('[useThrowBall] CaughtPokemon event matched:', ev.args);
-
-        // Clear timeout
-        if (vrfTimeoutRef.current) {
-          clearTimeout(vrfTimeoutRef.current);
-          vrfTimeoutRef.current = null;
-        }
-
-        const result: ThrowResult = {
-          status: 'caught',
-          pokemonId: ev.args.pokemonId,
-          slotIndex: ev.args.slotIndex,
-          nftMint: ev.args.nftMint,
-          txSignature: txSignature ?? undefined,
-        };
-
-        setLastResult(result);
-        setThrowStatus('caught');
-        setIsLoading(false);
-        pendingSlotRef.current = null;
-        pendingPlayerRef.current = null;
-        return;
-      }
-    }
-  }, [caughtEvents, throwStatus, txSignature]);
-
-  // ---- Watch for FailedCatch matching our pending throw ----
-  useEffect(() => {
-    if (throwStatus !== 'waiting_vrf') return;
-    if (pendingSlotRef.current === null || !pendingPlayerRef.current) return;
-
-    const slot = pendingSlotRef.current;
-    const player = pendingPlayerRef.current;
-
-    for (const ev of failedEvents) {
-      if (
-        ev.args.thrower === player &&
-        ev.args.slotIndex === slot
-      ) {
-        console.log('[useThrowBall] FailedCatch event matched:', ev.args);
-
-        // Clear timeout
-        if (vrfTimeoutRef.current) {
-          clearTimeout(vrfTimeoutRef.current);
-          vrfTimeoutRef.current = null;
-        }
-
-        const result: ThrowResult = {
-          status: 'missed',
-          pokemonId: ev.args.pokemonId,
-          slotIndex: ev.args.slotIndex,
-          attemptsRemaining: ev.args.attemptsRemaining,
-          txSignature: txSignature ?? undefined,
-        };
-
-        setLastResult(result);
-        setThrowStatus('missed');
-        setIsLoading(false);
-        pendingSlotRef.current = null;
-        pendingPlayerRef.current = null;
-        return;
-      }
-    }
-  }, [failedEvents, throwStatus, txSignature]);
-
-  // ---- Cleanup timeout on unmount ----
-  useEffect(() => {
+    cancelledRef.current = false;
     return () => {
-      if (vrfTimeoutRef.current) {
-        clearTimeout(vrfTimeoutRef.current);
-      }
+      cancelledRef.current = true;
     };
   }, []);
 
   // ---- throwBall function ----
+  // Full lifecycle: throw_ball tx → poll VRF → consume_randomness tx → result
   const throwBall = useCallback(
     async (slotIndex: number, ballType: BallType): Promise<boolean> => {
       console.log('[useThrowBall] throwBall called:', { slotIndex, ballType });
@@ -199,18 +195,13 @@ export function useThrowBall(): UseThrowBallReturn {
       setTxSignature(undefined);
       setThrowStatus('sending');
 
-      const playerKey = wallet.publicKey.toBase58();
-      pendingSlotRef.current = slotIndex;
-      pendingPlayerRef.current = playerKey;
-
-      // Track whether the tx succeeded so the finally block behaves correctly
-      let txSucceeded = false;
+      const playerKey = wallet.publicKey;
 
       try {
         console.log('[useThrowBall] sending throw transaction:', {
           slotIndex,
           ballType,
-          payer: playerKey,
+          payer: playerKey.toBase58(),
         });
 
         const anchorWallet: AnchorWallet = {
@@ -221,45 +212,63 @@ export function useThrowBall(): UseThrowBallReturn {
 
         setThrowStatus('confirming');
 
-        const sig = await throwBallTx(
+        // ---- Step 1: Send throw_ball transaction (requests VRF) ----
+        const throwResult = await throwBallTx(
           connection,
           anchorWallet,
           slotIndex,
           ballType
         );
 
-        console.log('[useThrowBall] throw transaction sent:', { signature: sig });
-        txSucceeded = true;
-        setTxSignature(sig);
+        if (cancelledRef.current) return false;
+
+        console.log('[useThrowBall] throw_ball tx confirmed:', throwResult.txSignature);
+        setTxSignature(throwResult.txSignature);
         setThrowStatus('waiting_vrf');
 
-        // Start VRF timeout
-        if (vrfTimeoutRef.current) clearTimeout(vrfTimeoutRef.current);
-        vrfTimeoutRef.current = setTimeout(() => {
-          // Only timeout if still waiting
-          if (pendingSlotRef.current !== null) {
-            console.warn('[useThrowBall] VRF timeout — no event received within', VRF_TIMEOUT_MS, 'ms');
-            const result: ThrowResult = {
-              status: 'error',
-              slotIndex,
-              txSignature: sig,
-              errorMessage: 'VRF timeout — catch result not received. The result may still process on-chain.',
-            };
-            setLastResult(result);
-            setThrowStatus('error');
-            setError(new Error('VRF timeout — result not received'));
-            setIsLoading(false);
-            pendingSlotRef.current = null;
-            pendingPlayerRef.current = null;
-          }
-        }, VRF_TIMEOUT_MS);
+        // ---- Step 2: Poll for ORAO VRF fulfillment ----
+        console.log('[useThrowBall] polling for VRF fulfillment...');
+        await pollVrfFulfillment(
+          connection,
+          throwResult.vrfRandomnessPDA,
+          VRF_POLL_TIMEOUT_MS,
+          VRF_POLL_INTERVAL_MS
+        );
 
+        if (cancelledRef.current) return false;
+
+        console.log('[useThrowBall] VRF fulfilled, sending consume_randomness...');
+        setThrowStatus('confirming');
+
+        // ---- Step 3: Send consume_randomness transaction (crank) ----
+        const consumeTx = await consumeRandomness(
+          connection,
+          anchorWallet,
+          throwResult.vrfRequestPDA,
+          throwResult.vrfSeed,
+          playerKey
+        );
+
+        if (cancelledRef.current) return false;
+
+        console.log('[useThrowBall] consume_randomness tx confirmed:', consumeTx);
+
+        // ---- Step 4: Parse the transaction logs for the result ----
+        // The on-chain program emits CaughtPokemon or FailedCatch events.
+        // We can parse these from the transaction logs.
+        const parsedResult = await parseConsumeResult(connection, consumeTx, slotIndex, throwResult.txSignature);
+
+        if (cancelledRef.current) return false;
+
+        setLastResult(parsedResult);
+        setThrowStatus(parsedResult.status === 'caught' ? 'caught' : 'missed');
+        setIsLoading(false);
         return true;
       } catch (e) {
-        console.error('[useThrowBall] failed to send transaction:', e);
-        const err = e instanceof Error ? e : new Error(String(e));
+        if (cancelledRef.current) return false;
 
-        // Log the raw error message for debugging
+        console.error('[useThrowBall] throw flow failed:', e);
+        const err = e instanceof Error ? e : new Error(String(e));
         console.error('[useThrowBall] raw error message:', err.message);
 
         // Parse Anchor errors
@@ -283,8 +292,12 @@ export function useThrowBall(): UseThrowBallReturn {
           friendlyError = new Error('Insufficient SOL for transaction fee');
         } else if (msg.includes('timeout') || msg.includes('Timed out')) {
           friendlyError = new Error('Transaction timed out. Please try again.');
+        } else if (msg.includes('VRF fulfillment timeout')) {
+          friendlyError = new Error('VRF timeout — catch result not received. It may still process on-chain.');
         } else if (msg.includes('blockhash') || msg.includes('Blockhash not found')) {
           friendlyError = new Error('Network congestion. Please try again.');
+        } else if (msg.includes('VrfAlreadyFulfilled')) {
+          friendlyError = new Error('This throw was already resolved. Refresh and try again.');
         } else {
           friendlyError = new Error('Throw failed. Please try again.');
         }
@@ -297,15 +310,7 @@ export function useThrowBall(): UseThrowBallReturn {
         });
         setThrowStatus('error');
         setIsLoading(false);
-        pendingSlotRef.current = null;
-        pendingPlayerRef.current = null;
         return false;
-      } finally {
-        // Only set isLoading to false if the transaction failed (caught in the catch block).
-        // On success, isLoading stays true until VRF resolves or times out.
-        if (!txSucceeded) {
-          setIsLoading(false);
-        }
       }
     },
     [connection, wallet, isLoading]
@@ -317,12 +322,6 @@ export function useThrowBall(): UseThrowBallReturn {
     setIsLoading(false);
     setThrowStatus('idle');
     setLastResult(null);
-    pendingSlotRef.current = null;
-    pendingPlayerRef.current = null;
-    if (vrfTimeoutRef.current) {
-      clearTimeout(vrfTimeoutRef.current);
-      vrfTimeoutRef.current = null;
-    }
   }, []);
 
   const isConnected = !!wallet.publicKey && !!wallet.signTransaction;

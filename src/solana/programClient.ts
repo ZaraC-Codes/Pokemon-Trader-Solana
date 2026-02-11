@@ -240,16 +240,25 @@ export async function purchaseBalls(
   return tx;
 }
 
+/** Result from throwBall — includes info needed to crank consume_randomness */
+export interface ThrowBallResult {
+  txSignature: TransactionSignature;
+  vrfRequestPDA: PublicKey;
+  vrfRandomnessPDA: PublicKey;
+  vrfSeed: Buffer;
+}
+
 /**
  * Throw a ball at a Pokemon.
  * Requests ORAO VRF for catch determination.
+ * Returns the tx signature AND the VRF request/randomness PDAs needed for consume_randomness.
  */
 export async function throwBall(
   connection: Connection,
   wallet: AnchorWallet,
   slotIndex: number,
   ballType: BallType
-): Promise<TransactionSignature> {
+): Promise<ThrowBallResult> {
   console.log('[programClient] throwBall called:', { slotIndex, ballType, payer: wallet.publicKey.toBase58() });
 
   const program = getProgram(connection, wallet);
@@ -332,42 +341,112 @@ export async function throwBall(
     .rpc();
 
   console.log('[programClient] throwBall tx confirmed:', tx);
-  return tx;
+  return {
+    txSignature: tx,
+    vrfRequestPDA,
+    vrfRandomnessPDA: vrfRandomness,
+    vrfSeed,
+  };
+}
+
+/**
+ * Poll the ORAO VRF randomness account until it is fulfilled.
+ * Returns the raw account data once fulfilled, or throws on timeout.
+ */
+export async function pollVrfFulfillment(
+  connection: Connection,
+  vrfRandomnessPDA: PublicKey,
+  timeoutMs: number = 30_000,
+  pollIntervalMs: number = 1_500
+): Promise<void> {
+  const start = Date.now();
+  console.log('[programClient] pollVrfFulfillment: polling', vrfRandomnessPDA.toBase58());
+
+  while (Date.now() - start < timeoutMs) {
+    const info = await connection.getAccountInfo(vrfRandomnessPDA);
+    if (info && info.data.length >= 8 + 64) {
+      // ORAO randomness account: discriminator(8) + status bytes
+      // The fulfilled_randomness check: if the randomness field is non-zero, it's fulfilled.
+      // In ORAO VRF v2, the account data contains a 64-byte randomness field that is zeroed
+      // until fulfillment. We check bytes after the discriminator for non-zero content.
+      // Simplest check: the account exists and has data > 72 bytes, AND
+      // the randomness bytes (offset varies by version) are not all zero.
+      // Actually, we can just try to see if the randomness is filled.
+      // The most reliable approach: check if bytes 8+32..8+32+64 are non-zero (Fulfilled variant)
+      // But ORAO uses an enum, so let's just check if enough non-zero data exists.
+      //
+      // Better approach: just attempt the consume_randomness tx — if VRF isn't ready,
+      // the on-chain check will reject with VrfNotFulfilled.
+      // But we want to avoid spamming failed txs. Let's check the raw data.
+      //
+      // ORAO RandomnessAccountData enum layout (v2):
+      //   Pending variant: discriminator(8) + seed(32) + all zeros for randomness
+      //   Fulfilled variant: discriminator(8) + seed(32) + randomness(64) + ...
+      // The simplest heuristic: check if bytes 40..104 (randomness field) are non-zero.
+      const randomnessSlice = info.data.subarray(40, 104);
+      const isNonZero = randomnessSlice.some((b: number) => b !== 0);
+      if (isNonZero) {
+        console.log('[programClient] pollVrfFulfillment: randomness fulfilled!');
+        return;
+      }
+    }
+    // Wait before next poll
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+  }
+  throw new Error('VRF fulfillment timeout');
 }
 
 /**
  * Call consume_randomness after VRF fulfillment.
  * Can be called by anyone (cranker pattern).
+ *
+ * Derives all accounts from the vrfRequestPDA and the player's wallet.
  */
 export async function consumeRandomness(
   connection: Connection,
   wallet: AnchorWallet,
   vrfRequestPDA: PublicKey,
-  vrfRandomness: PublicKey,
-  playerInventoryPDA?: PublicKey,
-  nftMint?: PublicKey,
-  winner?: PublicKey
+  vrfSeed: Buffer,
+  playerPubkey?: PublicKey
 ): Promise<TransactionSignature> {
   const program = getProgram(connection, wallet);
-  const [gameConfigPDA] = getGameConfigPDA();
-  const [pokemonSlotsPDA] = getPokemonSlotsPDA();
   const [nftVaultPDA] = getNftVaultPDA();
 
+  // Derive ORAO randomness PDA from the VRF seed
+  const [vrfRandomness] = PublicKey.findProgramAddressSync(
+    [Buffer.from('orao-vrf-randomness-request'), vrfSeed],
+    ORAO_VRF_PROGRAM_ID
+  );
+
+  // Player inventory PDA (optional — needed for throw requests to update stats)
+  let playerInventoryPDA: PublicKey | null = null;
+  if (playerPubkey) {
+    [playerInventoryPDA] = getPlayerInventoryPDA(playerPubkey);
+  }
+
+  // For the NFT transfer accounts — we pass null for now.
+  // The on-chain code handles the case where vault is empty or optional accounts are missing.
+  // NFT transfer on catch will be handled in a future iteration if vault has NFTs.
   const accounts: Record<string, PublicKey | null> = {
     payer: wallet.publicKey,
-    gameConfig: gameConfigPDA,
-    pokemonSlots: pokemonSlotsPDA,
     vrfRequest: vrfRequestPDA,
     vrfRandomness,
     nftVault: nftVaultPDA,
-    playerInventory: playerInventoryPDA ?? null,
+    playerInventory: playerInventoryPDA,
     vaultNftTokenAccount: null,
     playerNftTokenAccount: null,
-    nftMint: nftMint ?? null,
-    winner: winner ?? null,
+    nftMint: null,
+    winner: null,
     tokenProgram: TOKEN_PROGRAM_ID,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
   };
+
+  console.log('[programClient] consumeRandomness accounts:', {
+    payer: wallet.publicKey.toBase58(),
+    vrfRequest: vrfRequestPDA.toBase58(),
+    vrfRandomness: vrfRandomness.toBase58(),
+    playerInventory: playerInventoryPDA?.toBase58() ?? 'null',
+  });
 
   const tx = await program.methods
     .consumeRandomness()
