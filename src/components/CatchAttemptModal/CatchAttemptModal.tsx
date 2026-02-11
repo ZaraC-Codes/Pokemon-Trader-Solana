@@ -329,12 +329,29 @@ export function CatchAttemptModal({
 
   const handleThrow = useCallback(
     async (ballType: BallType) => {
-      if (getBallCount(ballType) <= 0 || !throwBallFn) return;
+      console.log('[CatchAttemptModal] handleThrow called:', { ballType, slotIndex, pokemonId: pokemonId.toString() });
+
+      if (!throwBallFn) {
+        console.warn('[CatchAttemptModal] throwBallFn is undefined — wallet not connected?');
+        return;
+      }
+
+      if (getBallCount(ballType) <= 0) {
+        console.warn('[CatchAttemptModal] no balls of this type:', { ballType, count: getBallCount(ballType) });
+        return;
+      }
+
+      if (slotIndex == null) {
+        console.warn('[CatchAttemptModal] slotIndex is null/undefined');
+        return;
+      }
 
       setThrowingBallType(ballType);
 
       try {
+        console.log('[CatchAttemptModal] calling throwBallFn(', slotIndex, ',', ballType, ')');
         const success = await throwBallFn(slotIndex, ballType);
+        console.log('[CatchAttemptModal] throwBallFn returned:', success);
 
         if (!success) {
           setThrowingBallType(null);
@@ -345,7 +362,7 @@ export function CatchAttemptModal({
         setThrowingBallType(null);
       }
     },
-    [slotIndex, getBallCount, throwBallFn]
+    [slotIndex, pokemonId, getBallCount, throwBallFn]
   );
 
   const handleDismissError = useCallback(() => {

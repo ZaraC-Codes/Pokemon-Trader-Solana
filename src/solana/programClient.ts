@@ -250,6 +250,8 @@ export async function throwBall(
   slotIndex: number,
   ballType: BallType
 ): Promise<TransactionSignature> {
+  console.log('[programClient] throwBall called:', { slotIndex, ballType, payer: wallet.publicKey.toBase58() });
+
   const program = getProgram(connection, wallet);
   const [gameConfigPDA] = getGameConfigPDA();
   const [pokemonSlotsPDA] = getPokemonSlotsPDA();
@@ -260,7 +262,11 @@ export async function throwBall(
   if (!gameConfig) throw new Error('Game not initialized');
 
   const vrfCounter = gameConfig.vrfCounter;
-  const seed = vrfCounter.toArrayLike(Buffer, 'le', 8);
+  console.log('[programClient] vrfCounter:', vrfCounter.toString(), 'type:', typeof vrfCounter, 'isBN:', BN.isBN(vrfCounter));
+
+  // Ensure vrfCounter is a BN (Anchor 0.30 should return BN for u64)
+  const vrfCounterBN = BN.isBN(vrfCounter) ? vrfCounter : new BN(vrfCounter.toString());
+  const seed = vrfCounterBN.toArrayLike(Buffer, 'le', 8);
 
   // Derive VRF request PDA
   const [vrfRequestPDA] = PublicKey.findProgramAddressSync(
@@ -288,6 +294,19 @@ export async function throwBall(
     ORAO_VRF_PROGRAM_ID
   );
 
+  console.log('[programClient] throwBall accounts:', {
+    player: wallet.publicKey.toBase58(),
+    gameConfig: gameConfigPDA.toBase58(),
+    pokemonSlots: pokemonSlotsPDA.toBase58(),
+    playerInventory: playerInventoryPDA.toBase58(),
+    vrfRequest: vrfRequestPDA.toBase58(),
+    vrfConfig: vrfConfig.toBase58(),
+    vrfRandomness: vrfRandomness.toBase58(),
+    vrfTreasury: vrfTreasury.toBase58(),
+    oraoVrf: ORAO_VRF_PROGRAM_ID.toBase58(),
+  });
+
+  console.log('[programClient] sending throwBall transaction...');
   const tx = await program.methods
     .throwBall(slotIndex, ballType)
     .accounts({
@@ -303,7 +322,7 @@ export async function throwBall(
     })
     .rpc();
 
-  console.log('[programClient] throwBall tx:', tx);
+  console.log('[programClient] throwBall tx confirmed:', tx);
   return tx;
 }
 

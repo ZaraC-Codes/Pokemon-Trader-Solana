@@ -166,19 +166,29 @@ export function useThrowBall(): UseThrowBallReturn {
   // ---- throwBall function ----
   const throwBall = useCallback(
     async (slotIndex: number, ballType: BallType): Promise<boolean> => {
+      console.log('[useThrowBall] throwBall called:', { slotIndex, ballType });
+
       if (!wallet.publicKey || !wallet.signTransaction) {
+        console.warn('[useThrowBall] no wallet connected, not sending');
         setError(new Error('Wallet not connected'));
         return false;
       }
 
       if (slotIndex < 0 || slotIndex >= MAX_POKEMON_SLOTS) {
+        console.warn('[useThrowBall] invalid slotIndex:', slotIndex);
         setError(new Error(`Invalid slot index (must be 0-${MAX_POKEMON_SLOTS - 1})`));
+        return false;
+      }
+
+      if (ballType == null || ballType < 0 || ballType > 3) {
+        console.warn('[useThrowBall] invalid ballType:', ballType);
+        setError(new Error('Invalid ball type'));
         return false;
       }
 
       // Guard against duplicate throws
       if (isLoading) {
-        console.warn('[useThrowBall] Throw already in progress');
+        console.warn('[useThrowBall] Throw already in progress, not sending');
         return false;
       }
 
@@ -193,11 +203,14 @@ export function useThrowBall(): UseThrowBallReturn {
       pendingSlotRef.current = slotIndex;
       pendingPlayerRef.current = playerKey;
 
+      // Track whether the tx succeeded so the finally block behaves correctly
+      let txSucceeded = false;
+
       try {
-        console.log('[useThrowBall] Throwing ball:', {
+        console.log('[useThrowBall] sending throw transaction:', {
           slotIndex,
           ballType,
-          player: playerKey,
+          payer: playerKey,
         });
 
         const anchorWallet: AnchorWallet = {
@@ -215,7 +228,8 @@ export function useThrowBall(): UseThrowBallReturn {
           ballType
         );
 
-        console.log('[useThrowBall] Throw confirmed:', sig);
+        console.log('[useThrowBall] throw transaction sent:', { signature: sig });
+        txSucceeded = true;
         setTxSignature(sig);
         setThrowStatus('waiting_vrf');
 
@@ -242,8 +256,11 @@ export function useThrowBall(): UseThrowBallReturn {
 
         return true;
       } catch (e) {
-        console.error('[useThrowBall] Throw failed:', e);
+        console.error('[useThrowBall] failed to send transaction:', e);
         const err = e instanceof Error ? e : new Error(String(e));
+
+        // Log the raw error message for debugging
+        console.error('[useThrowBall] raw error message:', err.message);
 
         // Parse Anchor errors
         const msg = err.message;
@@ -279,18 +296,19 @@ export function useThrowBall(): UseThrowBallReturn {
           errorMessage: friendlyError.message,
         });
         setThrowStatus('error');
+        setIsLoading(false);
         pendingSlotRef.current = null;
         pendingPlayerRef.current = null;
         return false;
       } finally {
-        // Note: isLoading stays true until VRF resolves or timeout
-        // Only set false on tx failure (caught in the catch block)
-        if (throwStatus === 'error' || throwStatus === 'idle') {
+        // Only set isLoading to false if the transaction failed (caught in the catch block).
+        // On success, isLoading stays true until VRF resolves or times out.
+        if (!txSucceeded) {
           setIsLoading(false);
         }
       }
     },
-    [connection, wallet, isLoading, throwStatus]
+    [connection, wallet, isLoading]
   );
 
   const reset = useCallback(() => {
