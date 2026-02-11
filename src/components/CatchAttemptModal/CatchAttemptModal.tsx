@@ -304,28 +304,29 @@ export function CatchAttemptModal({
   const isThrowInProgress = throwStatus !== 'idle' && throwStatus !== 'error' && throwStatus !== 'caught' && throwStatus !== 'missed';
   const statusMessage = THROW_STATUS_MESSAGES[throwStatus] || '';
 
-  // ---- When lastResult arrives, fire onVisualThrow + onResult and close ----
+  // ---- When lastResult arrives, fire callbacks and close for ANY terminal result ----
   useEffect(() => {
     if (!lastResult) return;
 
-    if (lastResult.status === 'caught' || lastResult.status === 'missed') {
-      // Trigger visual throw animation when result arrives
-      if (onVisualThrow && throwingBallType !== null) {
-        onVisualThrow(pokemonId, throwingBallType);
-      }
+    console.log('[CatchAttemptModal] lastResult received:', lastResult.status, lastResult);
 
-      // Bubble result to parent
-      if (onResult) {
-        onResult(lastResult);
-      }
-
-      // Auto-close after a short delay so user sees the status flash
-      const timer = setTimeout(() => {
-        onClose();
-      }, 400);
-      return () => clearTimeout(timer);
+    // Trigger visual throw animation for caught/missed (not error)
+    if ((lastResult.status === 'caught' || lastResult.status === 'missed') && onVisualThrow && throwingBallType !== null) {
+      onVisualThrow(pokemonId, throwingBallType);
     }
-  }, [lastResult, onResult, onVisualThrow, pokemonId, throwingBallType, onClose]);
+
+    // Bubble result to parent (for all statuses including error)
+    if (onResult) {
+      onResult(lastResult);
+    }
+
+    // Close this modal for ANY terminal status — caught, missed, or error.
+    // The parent handles showing CatchWin/CatchResult/error modals.
+    onClose();
+
+    // Reset hook for next throw
+    reset();
+  }, [lastResult]); // Minimal deps — we only want this to fire when lastResult changes
 
   const handleThrow = useCallback(
     async (ballType: BallType) => {

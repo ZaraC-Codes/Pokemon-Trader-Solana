@@ -6,7 +6,7 @@
  */
 
 import { Program, AnchorProvider, type Idl, BN } from '@coral-xyz/anchor';
-import { Connection, PublicKey, type TransactionSignature } from '@solana/web3.js';
+import { Connection, PublicKey, type TransactionSignature, SystemProgram, SYSVAR_RENT_PUBKEY, VersionedTransaction } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
   TOKEN_PROGRAM_ID,
@@ -354,11 +354,9 @@ export async function throwBall(
  *
  * ORAO VRF fulfills randomness sub-second, but we can't reliably parse the
  * raw Borsh-serialized enum to check fulfillment status. Instead, we:
- *   1. Build the transaction once
- *   2. Use simulate() in a retry loop (no wallet popup, no SOL cost)
- *   3. Once simulation succeeds (VRF fulfilled), send the real tx via rpc()
- *
- * This ensures the user only sees ONE wallet popup for consume_randomness.
+ *   1. Build a raw Transaction for simulation (no wallet popup)
+ *   2. Use connection.simulateTransaction in a retry loop
+ *   3. Once simulation succeeds, send the real tx via .rpc() (one wallet popup)
  */
 export async function consumeRandomnessWithRetry(
   connection: Connection,
@@ -370,6 +368,8 @@ export async function consumeRandomnessWithRetry(
   retryIntervalMs: number = 2_000
 ): Promise<TransactionSignature> {
   const program = getProgram(connection, wallet);
+  const [gameConfigPDA] = getGameConfigPDA();
+  const [pokemonSlotsPDA] = getPokemonSlotsPDA();
   const [nftVaultPDA] = getNftVaultPDA();
 
   // Derive ORAO randomness PDA from the VRF seed
@@ -384,8 +384,12 @@ export async function consumeRandomnessWithRetry(
     [playerInventoryPDA] = getPlayerInventoryPDA(playerPubkey);
   }
 
+  // Pass ALL accounts explicitly — do not rely on auto-resolution.
+  // This matches the working simulation script exactly.
   const accounts: Record<string, PublicKey | null> = {
     payer: wallet.publicKey,
+    gameConfig: gameConfigPDA,
+    pokemonSlots: pokemonSlotsPDA,
     vrfRequest: vrfRequestPDA,
     vrfRandomness,
     nftVault: nftVaultPDA,
@@ -396,21 +400,22 @@ export async function consumeRandomnessWithRetry(
     winner: null,
     tokenProgram: TOKEN_PROGRAM_ID,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
+    rent: SYSVAR_RENT_PUBKEY,
   };
 
   console.log('[programClient] consumeRandomnessWithRetry accounts:', {
     payer: wallet.publicKey.toBase58(),
+    gameConfig: gameConfigPDA.toBase58(),
+    pokemonSlots: pokemonSlotsPDA.toBase58(),
     vrfRequest: vrfRequestPDA.toBase58(),
     vrfRandomness: vrfRandomness.toBase58(),
+    nftVault: nftVaultPDA.toBase58(),
     playerInventory: playerInventoryPDA?.toBase58() ?? 'null',
   });
 
-  // Build the instruction builder once — reuse for simulate and send
-  const methodBuilder = program.methods
-    .consumeRandomness()
-    .accounts(accounts);
-
   // ---- Phase 1: Simulate in a loop until VRF is fulfilled ----
+  // Use raw simulateTransaction with sigVerify:false (no wallet popup needed)
   const start = Date.now();
   let attempt = 0;
   let lastError: Error | null = null;
@@ -419,23 +424,63 @@ export async function consumeRandomnessWithRetry(
     attempt++;
     try {
       console.log(`[programClient] consumeRandomness simulate attempt ${attempt}...`);
-      await methodBuilder.simulate();
-      // Simulation succeeded — VRF is fulfilled, break out to send
+
+      // Build a Transaction object for simulation
+      const tx = await program.methods
+        .consumeRandomness()
+        .accounts(accounts)
+        .transaction();
+
+      tx.feePayer = wallet.publicKey;
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+
+      // Simulate without signature verification (no wallet popup)
+      const messageV0 = tx.compileMessage();
+      const vtx = new VersionedTransaction(messageV0);
+
+      const simResult = await connection.simulateTransaction(vtx, {
+        sigVerify: false,
+        commitment: 'confirmed',
+      });
+
+      if (simResult.value.err) {
+        // Check if it's VrfNotFulfilled (custom error code 6020 = 0x1784)
+        const errStr = JSON.stringify(simResult.value.err);
+        console.log(`[programClient] simulation error:`, errStr);
+
+        if (errStr.includes('6020') || errStr.includes('VrfNotFulfilled')) {
+          console.log(`[programClient] VRF not fulfilled yet (attempt ${attempt}), retrying in ${retryIntervalMs}ms...`);
+          await new Promise((r) => setTimeout(r, retryIntervalMs));
+          continue;
+        }
+
+        // Any other simulation error — log details and throw
+        if (simResult.value.logs) {
+          console.error('[programClient] simulation logs:', simResult.value.logs);
+        }
+        throw new Error(`consumeRandomness simulation failed: ${errStr}`);
+      }
+
+      // Simulation succeeded — VRF is fulfilled
       console.log(`[programClient] consumeRandomness simulation succeeded on attempt ${attempt}`);
+      if (simResult.value.logs) {
+        console.log('[programClient] simulation logs:', simResult.value.logs);
+      }
       break;
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
       const msg = lastError.message;
 
-      // VrfNotFulfilled means ORAO hasn't filled the randomness yet — retry
-      if (msg.includes('VrfNotFulfilled') || msg.includes('0x1775')) {
+      // Handle VrfNotFulfilled from Anchor-wrapped errors too
+      if (msg.includes('VrfNotFulfilled') || msg.includes('6020') || msg.includes('0x1784')) {
         console.log(`[programClient] VRF not fulfilled yet (attempt ${attempt}), retrying in ${retryIntervalMs}ms...`);
         await new Promise((r) => setTimeout(r, retryIntervalMs));
         continue;
       }
 
-      // Any other error is a real failure — don't retry
-      console.error('[programClient] consumeRandomness simulation failed (non-retryable):', msg);
+      // Non-retryable error
+      console.error(`[programClient] consumeRandomness simulation failed (attempt ${attempt}):`, msg);
       throw lastError;
     }
   }
@@ -446,10 +491,14 @@ export async function consumeRandomnessWithRetry(
   }
 
   // ---- Phase 2: Send the real transaction (one wallet popup) ----
-  console.log('[programClient] sending consumeRandomness transaction...');
-  const tx = await methodBuilder.rpc();
-  console.log('[programClient] consumeRandomness tx confirmed:', tx);
-  return tx;
+  console.log('[programClient] sending consumeRandomness transaction via .rpc()...');
+  const txSig = await program.methods
+    .consumeRandomness()
+    .accounts(accounts)
+    .rpc();
+
+  console.log('[programClient] consumeRandomness tx confirmed:', txSig);
+  return txSig;
 }
 
 // ============================================================
