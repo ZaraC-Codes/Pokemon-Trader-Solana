@@ -257,22 +257,36 @@ export async function throwBall(
   const [pokemonSlotsPDA] = getPokemonSlotsPDA();
   const [playerInventoryPDA] = getPlayerInventoryPDA(wallet.publicKey);
 
-  // Fetch current vrf_counter to derive VRF request PDA
-  const gameConfig = await fetchGameConfig(connection);
+  // Fetch current vrf_counter using the SAME program instance (wallet-backed)
+  // to avoid any read inconsistencies with the read-only program
+  const gameConfig = await program.account.gameConfig.fetch(gameConfigPDA);
   if (!gameConfig) throw new Error('Game not initialized');
 
-  const vrfCounter = gameConfig.vrfCounter;
-  console.log('[programClient] vrfCounter:', vrfCounter.toString(), 'type:', typeof vrfCounter, 'isBN:', BN.isBN(vrfCounter));
+  const vrfCounter = (gameConfig as any).vrfCounter;
+  console.log('[programClient] vrfCounter:', vrfCounter?.toString(), 'type:', typeof vrfCounter, 'isBN:', BN.isBN(vrfCounter));
 
-  // Ensure vrfCounter is a BN (Anchor 0.30 should return BN for u64)
+  // Ensure vrfCounter is a BN
   const vrfCounterBN = BN.isBN(vrfCounter) ? vrfCounter : new BN(vrfCounter.toString());
-  const seed = vrfCounterBN.toArrayLike(Buffer, 'le', 8);
+  const counterBytes = vrfCounterBN.toArrayLike(Buffer, 'le', 8);
 
-  // Derive VRF request PDA
+  // Derive VRF request PDA using same seeds as the on-chain program:
+  //   seeds = [VRF_REQ_SEED, game_config.vrf_counter.to_le_bytes()]
   const [vrfRequestPDA] = PublicKey.findProgramAddressSync(
-    [Buffer.from('vrf_req'), seed],
+    [Buffer.from('vrf_req'), counterBytes],
     POKEBALL_GAME_PROGRAM_ID
   );
+
+  // Build the full 32-byte VRF seed matching make_vrf_seed(counter, VRF_TYPE_THROW):
+  //   seed[0..8]   = counter LE bytes
+  //   seed[8]      = request_type (1 for throw)
+  //   seed[24..32] = b"pkblgame"
+  const VRF_TYPE_THROW = 1;
+  const vrfSeed = Buffer.alloc(32);
+  counterBytes.copy(vrfSeed, 0);          // bytes 0..7
+  vrfSeed[8] = VRF_TYPE_THROW;             // byte 8
+  Buffer.from('pkblgame').copy(vrfSeed, 24); // bytes 24..31
+
+  console.log('[programClient] vrfSeed hex:', vrfSeed.toString('hex'));
 
   // ORAO VRF accounts
   const [vrfConfig] = PublicKey.findProgramAddressSync(
@@ -280,11 +294,9 @@ export async function throwBall(
     ORAO_VRF_PROGRAM_ID
   );
 
-  // ORAO randomness account PDA
-  const randomnessSeed = Buffer.alloc(32);
-  seed.copy(randomnessSeed, 0);
+  // ORAO randomness account PDA — uses the full 32-byte seed
   const [vrfRandomness] = PublicKey.findProgramAddressSync(
-    [Buffer.from('orao-vrf-randomness-request'), randomnessSeed],
+    [Buffer.from('orao-vrf-randomness-request'), vrfSeed],
     ORAO_VRF_PROGRAM_ID
   );
 
@@ -306,19 +318,20 @@ export async function throwBall(
     oraoVrf: ORAO_VRF_PROGRAM_ID.toBase58(),
   });
 
+  console.log('[programClient] counterBytes hex:', counterBytes.toString('hex'));
+  console.log('[programClient] vrfRequest PDA (client-derived):', vrfRequestPDA.toBase58());
+
   console.log('[programClient] sending throwBall transaction...');
+  // Let Anchor 0.30 auto-resolve PDA accounts that have seeds defined in the IDL
+  // (gameConfig, pokemonSlots, playerInventory, vrfRequest, vrfConfig).
+  // Only pass accounts without PDA seeds (vrfRandomness, vrfTreasury) and the signer.
+  // orao_vrf has a fixed address in the IDL and system_program is auto-resolved.
   const tx = await program.methods
     .throwBall(slotIndex, ballType)
     .accounts({
       player: wallet.publicKey,
-      gameConfig: gameConfigPDA,
-      pokemonSlots: pokemonSlotsPDA,
-      playerInventory: playerInventoryPDA,
-      vrfRequest: vrfRequestPDA,
-      vrfConfig,
       vrfRandomness,
       vrfTreasury,
-      oraoVrf: ORAO_VRF_PROGRAM_ID,
     })
     .rpc();
 
