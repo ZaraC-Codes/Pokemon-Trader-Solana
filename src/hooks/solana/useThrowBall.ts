@@ -19,8 +19,7 @@ import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import type { Connection } from '@solana/web3.js';
 import {
   throwBall as throwBallTx,
-  pollVrfFulfillment,
-  consumeRandomness,
+  consumeRandomnessWithRetry,
 } from '../../solana/programClient';
 import { MAX_POKEMON_SLOTS } from '../../solana/constants';
 import type { BallType } from '../../solana/constants';
@@ -226,27 +225,17 @@ export function useThrowBall(): UseThrowBallReturn {
         setTxSignature(throwResult.txSignature);
         setThrowStatus('waiting_vrf');
 
-        // ---- Step 2: Poll for ORAO VRF fulfillment ----
-        console.log('[useThrowBall] polling for VRF fulfillment...');
-        await pollVrfFulfillment(
-          connection,
-          throwResult.vrfRandomnessPDA,
-          VRF_POLL_TIMEOUT_MS,
-          VRF_POLL_INTERVAL_MS
-        );
-
-        if (cancelledRef.current) return false;
-
-        console.log('[useThrowBall] VRF fulfilled, sending consume_randomness...');
-        setThrowStatus('confirming');
-
-        // ---- Step 3: Send consume_randomness transaction (crank) ----
-        const consumeTx = await consumeRandomness(
+        // ---- Step 2+3: Poll VRF + send consume_randomness (retry loop) ----
+        // Tries to call consume_randomness; retries on VrfNotFulfilled until VRF is ready.
+        console.log('[useThrowBall] calling consumeRandomnessWithRetry...');
+        const consumeTx = await consumeRandomnessWithRetry(
           connection,
           anchorWallet,
           throwResult.vrfRequestPDA,
           throwResult.vrfSeed,
-          playerKey
+          playerKey,
+          VRF_POLL_TIMEOUT_MS,
+          VRF_POLL_INTERVAL_MS
         );
 
         if (cancelledRef.current) return false;

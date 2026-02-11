@@ -350,64 +350,24 @@ export async function throwBall(
 }
 
 /**
- * Poll the ORAO VRF randomness account until it is fulfilled.
- * Returns the raw account data once fulfilled, or throws on timeout.
- */
-export async function pollVrfFulfillment(
-  connection: Connection,
-  vrfRandomnessPDA: PublicKey,
-  timeoutMs: number = 30_000,
-  pollIntervalMs: number = 1_500
-): Promise<void> {
-  const start = Date.now();
-  console.log('[programClient] pollVrfFulfillment: polling', vrfRandomnessPDA.toBase58());
-
-  while (Date.now() - start < timeoutMs) {
-    const info = await connection.getAccountInfo(vrfRandomnessPDA);
-    if (info && info.data.length >= 8 + 64) {
-      // ORAO randomness account: discriminator(8) + status bytes
-      // The fulfilled_randomness check: if the randomness field is non-zero, it's fulfilled.
-      // In ORAO VRF v2, the account data contains a 64-byte randomness field that is zeroed
-      // until fulfillment. We check bytes after the discriminator for non-zero content.
-      // Simplest check: the account exists and has data > 72 bytes, AND
-      // the randomness bytes (offset varies by version) are not all zero.
-      // Actually, we can just try to see if the randomness is filled.
-      // The most reliable approach: check if bytes 8+32..8+32+64 are non-zero (Fulfilled variant)
-      // But ORAO uses an enum, so let's just check if enough non-zero data exists.
-      //
-      // Better approach: just attempt the consume_randomness tx — if VRF isn't ready,
-      // the on-chain check will reject with VrfNotFulfilled.
-      // But we want to avoid spamming failed txs. Let's check the raw data.
-      //
-      // ORAO RandomnessAccountData enum layout (v2):
-      //   Pending variant: discriminator(8) + seed(32) + all zeros for randomness
-      //   Fulfilled variant: discriminator(8) + seed(32) + randomness(64) + ...
-      // The simplest heuristic: check if bytes 40..104 (randomness field) are non-zero.
-      const randomnessSlice = info.data.subarray(40, 104);
-      const isNonZero = randomnessSlice.some((b: number) => b !== 0);
-      if (isNonZero) {
-        console.log('[programClient] pollVrfFulfillment: randomness fulfilled!');
-        return;
-      }
-    }
-    // Wait before next poll
-    await new Promise((r) => setTimeout(r, pollIntervalMs));
-  }
-  throw new Error('VRF fulfillment timeout');
-}
-
-/**
- * Call consume_randomness after VRF fulfillment.
- * Can be called by anyone (cranker pattern).
+ * Call consume_randomness with automatic retry until VRF is fulfilled.
  *
- * Derives all accounts from the vrfRequestPDA and the player's wallet.
+ * ORAO VRF fulfills randomness sub-second, but we can't reliably parse the
+ * raw Borsh-serialized enum to check fulfillment status. Instead, we:
+ *   1. Build the transaction once
+ *   2. Use simulate() in a retry loop (no wallet popup, no SOL cost)
+ *   3. Once simulation succeeds (VRF fulfilled), send the real tx via rpc()
+ *
+ * This ensures the user only sees ONE wallet popup for consume_randomness.
  */
-export async function consumeRandomness(
+export async function consumeRandomnessWithRetry(
   connection: Connection,
   wallet: AnchorWallet,
   vrfRequestPDA: PublicKey,
   vrfSeed: Buffer,
-  playerPubkey?: PublicKey
+  playerPubkey?: PublicKey,
+  timeoutMs: number = 30_000,
+  retryIntervalMs: number = 2_000
 ): Promise<TransactionSignature> {
   const program = getProgram(connection, wallet);
   const [nftVaultPDA] = getNftVaultPDA();
@@ -424,9 +384,6 @@ export async function consumeRandomness(
     [playerInventoryPDA] = getPlayerInventoryPDA(playerPubkey);
   }
 
-  // For the NFT transfer accounts — we pass null for now.
-  // The on-chain code handles the case where vault is empty or optional accounts are missing.
-  // NFT transfer on catch will be handled in a future iteration if vault has NFTs.
   const accounts: Record<string, PublicKey | null> = {
     payer: wallet.publicKey,
     vrfRequest: vrfRequestPDA,
@@ -441,19 +398,57 @@ export async function consumeRandomness(
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
   };
 
-  console.log('[programClient] consumeRandomness accounts:', {
+  console.log('[programClient] consumeRandomnessWithRetry accounts:', {
     payer: wallet.publicKey.toBase58(),
     vrfRequest: vrfRequestPDA.toBase58(),
     vrfRandomness: vrfRandomness.toBase58(),
     playerInventory: playerInventoryPDA?.toBase58() ?? 'null',
   });
 
-  const tx = await program.methods
+  // Build the instruction builder once — reuse for simulate and send
+  const methodBuilder = program.methods
     .consumeRandomness()
-    .accounts(accounts)
-    .rpc();
+    .accounts(accounts);
 
-  console.log('[programClient] consumeRandomness tx:', tx);
+  // ---- Phase 1: Simulate in a loop until VRF is fulfilled ----
+  const start = Date.now();
+  let attempt = 0;
+  let lastError: Error | null = null;
+
+  while (Date.now() - start < timeoutMs) {
+    attempt++;
+    try {
+      console.log(`[programClient] consumeRandomness simulate attempt ${attempt}...`);
+      await methodBuilder.simulate();
+      // Simulation succeeded — VRF is fulfilled, break out to send
+      console.log(`[programClient] consumeRandomness simulation succeeded on attempt ${attempt}`);
+      break;
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      const msg = lastError.message;
+
+      // VrfNotFulfilled means ORAO hasn't filled the randomness yet — retry
+      if (msg.includes('VrfNotFulfilled') || msg.includes('0x1775')) {
+        console.log(`[programClient] VRF not fulfilled yet (attempt ${attempt}), retrying in ${retryIntervalMs}ms...`);
+        await new Promise((r) => setTimeout(r, retryIntervalMs));
+        continue;
+      }
+
+      // Any other error is a real failure — don't retry
+      console.error('[programClient] consumeRandomness simulation failed (non-retryable):', msg);
+      throw lastError;
+    }
+  }
+
+  // Check if we timed out
+  if (Date.now() - start >= timeoutMs) {
+    throw new Error(`VRF fulfillment timeout after ${attempt} attempts: ${lastError?.message ?? 'unknown'}`);
+  }
+
+  // ---- Phase 2: Send the real transaction (one wallet popup) ----
+  console.log('[programClient] sending consumeRandomness transaction...');
+  const tx = await methodBuilder.rpc();
+  console.log('[programClient] consumeRandomness tx confirmed:', tx);
   return tx;
 }
 
