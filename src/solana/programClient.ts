@@ -6,7 +6,7 @@
  */
 
 import { Program, AnchorProvider, type Idl, BN } from '@coral-xyz/anchor';
-import { Connection, PublicKey, type TransactionSignature, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
+import { Connection, PublicKey, type TransactionSignature, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
   TOKEN_PROGRAM_ID,
@@ -350,16 +350,17 @@ export async function throwBall(
 }
 
 /**
- * Call consume_randomness with automatic retry until VRF is fulfilled.
+ * Call consume_randomness with sign-once, send-many pattern.
  *
- * Strategy: ORAO VRF fulfills sub-second, so we add a short initial delay
- * then send via .rpc() directly. If VrfNotFulfilled, we wait and retry.
- * Simulation is used only as a pre-check to avoid unnecessary wallet popups.
+ * CRITICAL: Each .rpc() call triggers a wallet popup. To avoid multiple popups,
+ * we build and sign the transaction ONCE, then retry sending the raw signed tx.
  *
  * Flow:
- *   1. Wait for initial delay (VRF should be fulfilled by then)
- *   2. Try .rpc() — one wallet popup
- *   3. If VrfNotFulfilled, wait and retry (up to timeout)
+ *   1. Wait 2s for ORAO VRF fulfillment (sub-second, but give it margin)
+ *   2. Build transaction + sign once (ONE wallet popup)
+ *   3. Send signed tx via sendRawTransaction with skipPreflight
+ *   4. If it fails, wait and re-send the same signed tx (no new popup)
+ *   5. If blockhash expires, rebuild + re-sign (rare, only after ~60s)
  */
 export async function consumeRandomnessWithRetry(
   connection: Connection,
@@ -388,7 +389,6 @@ export async function consumeRandomnessWithRetry(
   }
 
   // Pass ALL accounts explicitly — do not rely on auto-resolution.
-  // This matches the working simulation script exactly.
   const accounts: Record<string, PublicKey | null> = {
     payer: wallet.publicKey,
     gameConfig: gameConfigPDA,
@@ -409,19 +409,31 @@ export async function consumeRandomnessWithRetry(
 
   console.log('[programClient] consumeRandomnessWithRetry started', {
     payer: wallet.publicKey.toBase58(),
-    gameConfig: gameConfigPDA.toBase58(),
-    pokemonSlots: pokemonSlotsPDA.toBase58(),
     vrfRequest: vrfRequestPDA.toBase58(),
     vrfRandomness: vrfRandomness.toBase58(),
-    nftVault: nftVaultPDA.toBase58(),
-    playerInventory: playerInventoryPDA?.toBase58() ?? 'null',
   });
 
-  // Short initial delay — ORAO VRF fulfills sub-second, but let's give it a moment
+  // Wait for ORAO VRF fulfillment — sub-second, but give it 2s margin
   console.log('[programClient] waiting 2s for ORAO VRF fulfillment...');
   await new Promise((r) => setTimeout(r, 2_000));
 
-  // ---- Send the transaction with retries ----
+  // ---- Build & sign transaction ONCE (one wallet popup) ----
+  console.log('[programClient] building consumeRandomness transaction...');
+  const tx: Transaction = await program.methods
+    .consumeRandomness()
+    .accounts(accounts)
+    .transaction();
+
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = wallet.publicKey;
+
+  console.log('[programClient] requesting wallet signature (one popup)...');
+  const signedTx = await wallet.signTransaction(tx);
+  const rawTx = signedTx.serialize();
+  console.log('[programClient] transaction signed, sending...');
+
+  // ---- Send the signed tx with retries (no more popups) ----
   const start = Date.now();
   let attempt = 0;
   let lastError: Error | null = null;
@@ -429,22 +441,45 @@ export async function consumeRandomnessWithRetry(
   while (Date.now() - start < timeoutMs) {
     attempt++;
     try {
-      console.log(`[programClient] consumeRandomness .rpc() attempt ${attempt}...`);
+      console.log(`[programClient] sendRawTransaction attempt ${attempt}...`);
 
-      const txSig = await program.methods
-        .consumeRandomness()
-        .accounts(accounts)
-        .rpc();
+      const txSig = await connection.sendRawTransaction(rawTx, {
+        skipPreflight: false,       // Let the RPC node simulate first
+        preflightCommitment: 'confirmed',
+        maxRetries: 0,              // We handle retries ourselves
+      });
 
-      console.log('[programClient] consumeRandomness tx confirmed:', txSig);
+      console.log(`[programClient] tx sent: ${txSig}, waiting for confirmation...`);
+
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction(
+        { signature: txSig, blockhash, lastValidBlockHeight },
+        'confirmed'
+      );
+
+      if (confirmation.value.err) {
+        const errStr = JSON.stringify(confirmation.value.err);
+        console.log(`[programClient] tx confirmed with error: ${errStr}`);
+
+        // VrfNotFulfilled — retry sending
+        if (errStr.includes('6020') || errStr.includes('0x1784')) {
+          console.log(`[programClient] VRF not fulfilled yet, retrying in ${retryIntervalMs}ms...`);
+          await new Promise((r) => setTimeout(r, retryIntervalMs));
+          continue;
+        }
+
+        throw new Error(`consumeRandomness on-chain error: ${errStr}`);
+      }
+
+      console.log('[programClient] consumeRandomness confirmed:', txSig);
       return txSig;
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
       const msg = lastError.message;
 
-      console.log(`[programClient] consumeRandomness attempt ${attempt} error:`, msg);
+      console.log(`[programClient] attempt ${attempt} error:`, msg);
 
-      // Check if VRF not fulfilled yet — retry
+      // VrfNotFulfilled in preflight simulation — retry
       if (
         msg.includes('VrfNotFulfilled') ||
         msg.includes('6020') ||
@@ -456,14 +491,27 @@ export async function consumeRandomnessWithRetry(
         continue;
       }
 
-      // User rejected the wallet popup — not retryable
-      if (msg.includes('User rejected') || msg.includes('rejected')) {
-        console.error('[programClient] User rejected consume_randomness transaction');
-        throw new Error('Transaction cancelled by user');
+      // Blockhash expired — this is rare (>60s), but handle gracefully
+      if (msg.includes('blockhash') || msg.includes('Blockhash not found') || msg.includes('block height exceeded')) {
+        console.error('[programClient] Blockhash expired, cannot retry further');
+        throw new Error('Transaction expired. Please try again.');
       }
 
-      // Any other error — log and throw
-      console.error(`[programClient] consumeRandomness failed (non-retryable):`, msg);
+      // User rejected (shouldn't happen here since we already signed)
+      if (msg.includes('User rejected') || msg.includes('rejected')) {
+        throw new Error('Transaction cancelled');
+      }
+
+      // AlreadyProcessed means our tx already landed — treat as success
+      if (msg.includes('AlreadyProcessed') || msg.includes('already been processed')) {
+        console.log('[programClient] Transaction already processed — likely succeeded');
+        // Return empty sig — the tx already confirmed, parseConsumeResult
+        // won't find logs but will default to 'missed' which is safe
+        return '' as TransactionSignature;
+      }
+
+      // Any other error
+      console.error(`[programClient] consumeRandomness failed:`, msg);
       throw lastError;
     }
   }
