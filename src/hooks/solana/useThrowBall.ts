@@ -2,20 +2,40 @@
  * useThrowBall Hook (Solana)
  *
  * Hook for throwing a PokeBall at a Pokemon via the Anchor program.
- * Requests ORAO VRF for catch determination.
- * Replaces the EVM useThrowBall and useGaslessThrow hooks.
+ * Requests ORAO VRF for catch determination, then listens for
+ * CaughtPokemon / FailedCatch events to resolve the result.
+ *
+ * Lifecycle: idle → sending → confirming → waiting_vrf → caught/missed/error
  *
  * On Solana, throws are direct transactions (~$0.001 fee), not gasless.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import { throwBall as throwBallTx } from '../../solana/programClient';
 import { MAX_POKEMON_SLOTS } from '../../solana/constants';
 import type { BallType } from '../../solana/constants';
+import {
+  useCaughtPokemonEvents,
+  useFailedCatchEvents,
+} from './useSolanaEvents';
 
-export type ThrowStatus = 'idle' | 'sending' | 'confirming' | 'success' | 'error';
+// ============================================================
+// TYPE DEFINITIONS
+// ============================================================
+
+export type ThrowStatus = 'idle' | 'sending' | 'confirming' | 'waiting_vrf' | 'caught' | 'missed' | 'error';
+
+export interface ThrowResult {
+  status: 'caught' | 'missed' | 'error';
+  pokemonId?: bigint;
+  slotIndex?: number;
+  nftMint?: string;
+  attemptsRemaining?: number;
+  txSignature?: string;
+  errorMessage?: string;
+}
 
 export interface UseThrowBallReturn {
   throwBall: ((slotIndex: number, ballType: BallType) => Promise<boolean>) | undefined;
@@ -24,8 +44,19 @@ export interface UseThrowBallReturn {
   error: Error | undefined;
   txSignature: string | undefined;
   throwStatus: ThrowStatus;
+  lastResult: ThrowResult | null;
   reset: () => void;
 }
+
+// ============================================================
+// VRF TIMEOUT
+// ============================================================
+
+const VRF_TIMEOUT_MS = 12_000; // 12 seconds
+
+// ============================================================
+// HOOK IMPLEMENTATION
+// ============================================================
 
 export function useThrowBall(): UseThrowBallReturn {
   const { connection } = useConnection();
@@ -34,7 +65,105 @@ export function useThrowBall(): UseThrowBallReturn {
   const [error, setError] = useState<Error | undefined>();
   const [txSignature, setTxSignature] = useState<string | undefined>();
   const [throwStatus, setThrowStatus] = useState<ThrowStatus>('idle');
+  const [lastResult, setLastResult] = useState<ThrowResult | null>(null);
 
+  // Track which slot we're currently waiting on
+  const pendingSlotRef = useRef<number | null>(null);
+  const pendingPlayerRef = useRef<string | null>(null);
+  const vrfTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Listen for VRF resolution events
+  const { events: caughtEvents } = useCaughtPokemonEvents();
+  const { events: failedEvents } = useFailedCatchEvents();
+
+  // ---- Watch for CaughtPokemon matching our pending throw ----
+  useEffect(() => {
+    if (throwStatus !== 'waiting_vrf') return;
+    if (pendingSlotRef.current === null || !pendingPlayerRef.current) return;
+
+    const slot = pendingSlotRef.current;
+    const player = pendingPlayerRef.current;
+
+    for (const ev of caughtEvents) {
+      if (
+        ev.args.catcher === player &&
+        ev.args.slotIndex === slot
+      ) {
+        console.log('[useThrowBall] CaughtPokemon event matched:', ev.args);
+
+        // Clear timeout
+        if (vrfTimeoutRef.current) {
+          clearTimeout(vrfTimeoutRef.current);
+          vrfTimeoutRef.current = null;
+        }
+
+        const result: ThrowResult = {
+          status: 'caught',
+          pokemonId: ev.args.pokemonId,
+          slotIndex: ev.args.slotIndex,
+          nftMint: ev.args.nftMint,
+          txSignature: txSignature ?? undefined,
+        };
+
+        setLastResult(result);
+        setThrowStatus('caught');
+        setIsLoading(false);
+        pendingSlotRef.current = null;
+        pendingPlayerRef.current = null;
+        return;
+      }
+    }
+  }, [caughtEvents, throwStatus, txSignature]);
+
+  // ---- Watch for FailedCatch matching our pending throw ----
+  useEffect(() => {
+    if (throwStatus !== 'waiting_vrf') return;
+    if (pendingSlotRef.current === null || !pendingPlayerRef.current) return;
+
+    const slot = pendingSlotRef.current;
+    const player = pendingPlayerRef.current;
+
+    for (const ev of failedEvents) {
+      if (
+        ev.args.thrower === player &&
+        ev.args.slotIndex === slot
+      ) {
+        console.log('[useThrowBall] FailedCatch event matched:', ev.args);
+
+        // Clear timeout
+        if (vrfTimeoutRef.current) {
+          clearTimeout(vrfTimeoutRef.current);
+          vrfTimeoutRef.current = null;
+        }
+
+        const result: ThrowResult = {
+          status: 'missed',
+          pokemonId: ev.args.pokemonId,
+          slotIndex: ev.args.slotIndex,
+          attemptsRemaining: ev.args.attemptsRemaining,
+          txSignature: txSignature ?? undefined,
+        };
+
+        setLastResult(result);
+        setThrowStatus('missed');
+        setIsLoading(false);
+        pendingSlotRef.current = null;
+        pendingPlayerRef.current = null;
+        return;
+      }
+    }
+  }, [failedEvents, throwStatus, txSignature]);
+
+  // ---- Cleanup timeout on unmount ----
+  useEffect(() => {
+    return () => {
+      if (vrfTimeoutRef.current) {
+        clearTimeout(vrfTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // ---- throwBall function ----
   const throwBall = useCallback(
     async (slotIndex: number, ballType: BallType): Promise<boolean> => {
       if (!wallet.publicKey || !wallet.signTransaction) {
@@ -53,16 +182,22 @@ export function useThrowBall(): UseThrowBallReturn {
         return false;
       }
 
+      // Clear any previous result
+      setLastResult(null);
       setIsLoading(true);
       setError(undefined);
       setTxSignature(undefined);
       setThrowStatus('sending');
 
+      const playerKey = wallet.publicKey.toBase58();
+      pendingSlotRef.current = slotIndex;
+      pendingPlayerRef.current = playerKey;
+
       try {
         console.log('[useThrowBall] Throwing ball:', {
           slotIndex,
           ballType,
-          player: wallet.publicKey.toBase58(),
+          player: playerKey,
         });
 
         const anchorWallet: AnchorWallet = {
@@ -82,7 +217,29 @@ export function useThrowBall(): UseThrowBallReturn {
 
         console.log('[useThrowBall] Throw confirmed:', sig);
         setTxSignature(sig);
-        setThrowStatus('success');
+        setThrowStatus('waiting_vrf');
+
+        // Start VRF timeout
+        if (vrfTimeoutRef.current) clearTimeout(vrfTimeoutRef.current);
+        vrfTimeoutRef.current = setTimeout(() => {
+          // Only timeout if still waiting
+          if (pendingSlotRef.current !== null) {
+            console.warn('[useThrowBall] VRF timeout — no event received within', VRF_TIMEOUT_MS, 'ms');
+            const result: ThrowResult = {
+              status: 'error',
+              slotIndex,
+              txSignature: sig,
+              errorMessage: 'VRF timeout — catch result not received. The result may still process on-chain.',
+            };
+            setLastResult(result);
+            setThrowStatus('error');
+            setError(new Error('VRF timeout — result not received'));
+            setIsLoading(false);
+            pendingSlotRef.current = null;
+            pendingPlayerRef.current = null;
+          }
+        }, VRF_TIMEOUT_MS);
+
         return true;
       } catch (e) {
         console.error('[useThrowBall] Throw failed:', e);
@@ -90,37 +247,50 @@ export function useThrowBall(): UseThrowBallReturn {
 
         // Parse Anchor errors
         const msg = err.message;
+        let friendlyError: Error;
         if (msg.includes('InsufficientBalls')) {
-          setError(new Error("You don't have any of that ball type"));
+          friendlyError = new Error("You don't have any of that ball type");
         } else if (msg.includes('SlotNotActive')) {
-          setError(new Error('This Pokemon has already been caught or despawned'));
+          friendlyError = new Error('This Pokemon has already been caught or despawned');
         } else if (msg.includes('MaxAttemptsReached')) {
-          setError(new Error('No attempts remaining for this Pokemon'));
+          friendlyError = new Error('No attempts remaining for this Pokemon');
         } else if (msg.includes('InvalidSlotIndex')) {
-          setError(new Error('Invalid Pokemon slot'));
+          friendlyError = new Error('Invalid Pokemon slot');
         } else if (msg.includes('InvalidBallType')) {
-          setError(new Error('Invalid ball type selected'));
+          friendlyError = new Error('Invalid ball type selected');
         } else if (msg.includes('NotInitialized')) {
-          setError(new Error('Game not initialized. Please try again later.'));
+          friendlyError = new Error('Game not initialized. Please try again later.');
         } else if (msg.includes('User rejected') || msg.includes('rejected')) {
-          setError(new Error('Transaction cancelled'));
+          friendlyError = new Error('Transaction cancelled');
         } else if (msg.includes('insufficient') || msg.includes('0x1')) {
-          setError(new Error('Insufficient SOL for transaction fee'));
+          friendlyError = new Error('Insufficient SOL for transaction fee');
         } else if (msg.includes('timeout') || msg.includes('Timed out')) {
-          setError(new Error('Transaction timed out. Please try again.'));
+          friendlyError = new Error('Transaction timed out. Please try again.');
         } else if (msg.includes('blockhash') || msg.includes('Blockhash not found')) {
-          setError(new Error('Network congestion. Please try again.'));
+          friendlyError = new Error('Network congestion. Please try again.');
         } else {
-          setError(new Error('Throw failed. Please try again.'));
+          friendlyError = new Error('Throw failed. Please try again.');
         }
 
+        setError(friendlyError);
+        setLastResult({
+          status: 'error',
+          slotIndex,
+          errorMessage: friendlyError.message,
+        });
         setThrowStatus('error');
+        pendingSlotRef.current = null;
+        pendingPlayerRef.current = null;
         return false;
       } finally {
-        setIsLoading(false);
+        // Note: isLoading stays true until VRF resolves or timeout
+        // Only set false on tx failure (caught in the catch block)
+        if (throwStatus === 'error' || throwStatus === 'idle') {
+          setIsLoading(false);
+        }
       }
     },
-    [connection, wallet, isLoading]
+    [connection, wallet, isLoading, throwStatus]
   );
 
   const reset = useCallback(() => {
@@ -128,6 +298,13 @@ export function useThrowBall(): UseThrowBallReturn {
     setTxSignature(undefined);
     setIsLoading(false);
     setThrowStatus('idle');
+    setLastResult(null);
+    pendingSlotRef.current = null;
+    pendingPlayerRef.current = null;
+    if (vrfTimeoutRef.current) {
+      clearTimeout(vrfTimeoutRef.current);
+      vrfTimeoutRef.current = null;
+    }
   }, []);
 
   const isConnected = !!wallet.publicKey && !!wallet.signTransaction;
@@ -139,6 +316,7 @@ export function useThrowBall(): UseThrowBallReturn {
     error,
     txSignature,
     throwStatus,
+    lastResult,
     reset,
   };
 }

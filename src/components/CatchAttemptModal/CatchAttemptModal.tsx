@@ -5,7 +5,7 @@
  * Displays available balls, catch rates, and handles the on-chain throw flow.
  *
  * Solana version: Direct transactions via Anchor program (~$0.001 fee).
- * Replaces the EVM gasless meta-transaction flow.
+ * VRF result is awaited via useThrowBall's lastResult lifecycle.
  */
 
 import React, { useCallback, useEffect } from 'react';
@@ -18,6 +18,7 @@ import {
   SOLBALLS_DECIMALS,
   type BallType,
   type ThrowStatus,
+  type ThrowResult,
 } from '../../hooks/solana';
 
 // ============================================================
@@ -32,6 +33,7 @@ export interface CatchAttemptModalProps {
   slotIndex: number;
   attemptsRemaining: number;
   onVisualThrow?: (pokemonId: bigint, ballType: BallType) => void;
+  onResult?: (result: ThrowResult) => void;
 }
 
 // ============================================================
@@ -42,7 +44,9 @@ const THROW_STATUS_MESSAGES: Record<ThrowStatus, string> = {
   idle: '',
   sending: 'Sending transaction…',
   confirming: 'Waiting for confirmation…',
-  success: 'Throw complete!',
+  waiting_vrf: 'Waiting for catch result…',
+  caught: 'Caught!',
+  missed: 'Missed!',
   error: '',
 };
 
@@ -76,6 +80,9 @@ function getFriendlyErrorMessage(rawError: string | null): string {
   }
   if (errorLower.includes('blockhash') || errorLower.includes('congestion')) {
     return 'Network busy. Please try again in a moment.';
+  }
+  if (errorLower.includes('vrf timeout')) {
+    return 'Catch result timed out. It may still process on-chain — check back soon.';
   }
   return 'Something went wrong. Please try again.';
 }
@@ -261,6 +268,7 @@ export function CatchAttemptModal({
   slotIndex,
   attemptsRemaining,
   onVisualThrow,
+  onResult,
 }: CatchAttemptModalProps) {
   const [throwingBallType, setThrowingBallType] = React.useState<BallType | null>(null);
 
@@ -268,10 +276,10 @@ export function CatchAttemptModal({
     throwBall: throwBallFn,
     throwStatus,
     isLoading,
-    isPending,
     error,
     reset,
     txSignature,
+    lastResult,
   } = useThrowBall();
 
   const inventory = usePlayerInventory();
@@ -293,8 +301,31 @@ export function CatchAttemptModal({
     inventory.pokeBalls > 0 || inventory.greatBalls > 0 ||
     inventory.ultraBalls > 0 || inventory.masterBalls > 0;
 
-  const isThrowInProgress = throwStatus !== 'idle' && throwStatus !== 'error' && throwStatus !== 'success';
+  const isThrowInProgress = throwStatus !== 'idle' && throwStatus !== 'error' && throwStatus !== 'caught' && throwStatus !== 'missed';
   const statusMessage = THROW_STATUS_MESSAGES[throwStatus] || '';
+
+  // ---- When lastResult arrives, fire onVisualThrow + onResult and close ----
+  useEffect(() => {
+    if (!lastResult) return;
+
+    if (lastResult.status === 'caught' || lastResult.status === 'missed') {
+      // Trigger visual throw animation when result arrives
+      if (onVisualThrow && throwingBallType !== null) {
+        onVisualThrow(pokemonId, throwingBallType);
+      }
+
+      // Bubble result to parent
+      if (onResult) {
+        onResult(lastResult);
+      }
+
+      // Auto-close after a short delay so user sees the status flash
+      const timer = setTimeout(() => {
+        onClose();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [lastResult, onResult, onVisualThrow, pokemonId, throwingBallType, onClose]);
 
   const handleThrow = useCallback(
     async (ballType: BallType) => {
@@ -305,28 +336,17 @@ export function CatchAttemptModal({
       try {
         const success = await throwBallFn(slotIndex, ballType);
 
-        if (success) {
-          if (onVisualThrow) {
-            onVisualThrow(pokemonId, ballType);
-          }
-          onClose();
-        } else {
+        if (!success) {
           setThrowingBallType(null);
         }
+        // On success, we stay open and wait for VRF result via lastResult
       } catch (err) {
         console.error('[CatchAttemptModal] throwBall error:', err);
         setThrowingBallType(null);
       }
     },
-    [slotIndex, getBallCount, onVisualThrow, pokemonId, onClose, throwBallFn]
+    [slotIndex, getBallCount, throwBallFn]
   );
-
-  React.useEffect(() => {
-    if (throwStatus === 'idle' || throwStatus === 'error' || throwStatus === 'success') {
-      const timer = setTimeout(() => setThrowingBallType(null), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [throwStatus]);
 
   const handleDismissError = useCallback(() => {
     reset();
@@ -380,7 +400,11 @@ export function CatchAttemptModal({
           <div style={styles.loadingOverlay}>
             <div style={styles.loadingText}>{statusMessage}</div>
             <div style={styles.loadingSubtext}>
-              {throwStatus === 'sending' ? 'Please approve the transaction in your wallet…' : 'This may take a few seconds…'}
+              {throwStatus === 'sending'
+                ? 'Please approve the transaction in your wallet…'
+                : throwStatus === 'waiting_vrf'
+                ? 'VRF randomness is being resolved on-chain…'
+                : 'This may take a few seconds…'}
             </div>
           </div>
         )}

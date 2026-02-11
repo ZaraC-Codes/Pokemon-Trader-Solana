@@ -53,6 +53,7 @@ export {
   useThrowBall,
   type UseThrowBallReturn,
   type ThrowStatus,
+  type ThrowResult,
 } from './useThrowBall';
 
 // ============================================================

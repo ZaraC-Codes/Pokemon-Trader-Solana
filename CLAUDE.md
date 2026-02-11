@@ -167,7 +167,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   │   ├── index.ts                     # Barrel exports
 │   │   ├── usePlayerInventory.ts        # Read PlayerInventory PDA
 │   │   ├── usePurchaseBalls.ts          # purchase_balls instruction
-│   │   ├── useThrowBall.ts             # throw_ball instruction + VRF
+│   │   ├── useThrowBall.ts             # throw_ball + VRF event resolution (ThrowResult lifecycle)
 │   │   ├── usePokemonSpawns.ts          # Read PokemonSlots PDA
 │   │   ├── useSolBallsBalance.ts        # SolCatch token balance
 │   │   ├── useSolanaEvents.ts           # WebSocket event listener
@@ -491,7 +491,7 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 | `useActiveWeb3React` | Returns `{ account: string }` from `useWallet().publicKey` |
 | `usePlayerInventory` | Reads `PlayerInventory` PDA (ball counts, stats) with polling |
 | `usePurchaseBalls` | Calls `purchase_balls` instruction |
-| `useThrowBall` | Calls `throw_ball` instruction with VRF seed |
+| `useThrowBall` | Calls `throw_ball` instruction, listens for VRF result events, exposes `ThrowResult` lifecycle (`caught`/`missed`/`error`) with 12s timeout |
 | `usePokemonSpawns` | Reads `PokemonSlots` PDA, returns active spawns |
 | `useSolBallsBalance` | Reads player's SolCatch token account balance |
 | `useSolanaEvents` | WebSocket event listener for Anchor program events |
@@ -503,12 +503,12 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 |-----------|-------------|
 | `PokeBallShop` | SolCatch-only (no APE/USDC toggle), no approval step, Jupiter swap button |
 | `SwapWidget` | Jupiter Terminal v3 integration (CDN), output locked to SolCatch |
-| `CatchAttemptModal` | Direct tx via `useThrowBall`, Solana Explorer links |
+| `CatchAttemptModal` | Direct tx via `useThrowBall`, waits for VRF result, `onResult` callback to parent, auto-closes on caught/missed |
 | `CatchWinModal` | Solana Explorer links, no EVM NFT metadata fetching |
 | `CatchResultModal` | Solana Explorer links |
 | `InventoryTerminal` | Uses `usePlayerInventory` for stats display |
 | `AdminDevTools` | Reads Anchor accounts (GameConfig, PokemonSlots, NftVault) |
-| `TransactionHistory` | Session-based event log from WebSocket subscriptions |
+| `TransactionHistory` | ApeChain-matching layout: stats bar, spending totals, card-based events (THROW/ESCAPED/CAUGHT/PURCHASED), relative timestamps, Load More pagination |
 | `WalletConnector` | Solana Wallet Adapter button (auto-detects Phantom, Solflare, etc.) |
 | `TradeModal` | Stubbed (OTC trading not yet on Solana) |
 | `GameCanvas` | Uses `usePokemonSpawns` hook for on-chain spawn data |

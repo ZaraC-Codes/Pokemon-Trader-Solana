@@ -17,6 +17,7 @@ import {
   useFailedCatchEvents,
   useBallPurchasedEvents,
   type BallType,
+  type ThrowResult,
 } from './hooks/solana';
 import { useActiveWeb3React } from './hooks/useActiveWeb3React';
 import type { TradeListing } from './services/types';
@@ -65,6 +66,8 @@ function AppContent() {
   const processedCatchEventsRef = useRef<Set<string>>(new Set());
   const processedFailEventsRef = useRef<Set<string>>(new Set());
   const processedPurchaseEventsRef = useRef<Set<string>>(new Set());
+  // Track slots already resolved via handleThrowResult to avoid duplicate processing
+  const resolvedByCatchModalRef = useRef<Set<string>>(new Set());
 
   // Ref for triggering visual throw animation in Phaser
   const visualThrowRef = useRef<((pokemonId: bigint, ballType: BallType) => void) | null>(null);
@@ -106,7 +109,14 @@ function AppContent() {
     const isCurrentUser = account && latestEvent.args.catcher === account;
 
     if (isCurrentUser) {
-      console.log('[App] CaughtPokemon event for current user:', latestEvent.args);
+      // Skip if already handled by CatchAttemptModal's onResult
+      const resolveKey = `caught-${latestEvent.args.slotIndex}`;
+      if (resolvedByCatchModalRef.current.has(resolveKey)) {
+        resolvedByCatchModalRef.current.delete(resolveKey);
+        return;
+      }
+
+      console.log('[App] CaughtPokemon event for current user (event-based):', latestEvent.args);
 
       // Notify Phaser to reset CatchMechanicsManager state
       if (catchResultRef.current) {
@@ -145,7 +155,14 @@ function AppContent() {
     const isCurrentUser = account && latestEvent.args.thrower === account;
 
     if (isCurrentUser) {
-      console.log('[App] FailedCatch event for current user:', latestEvent.args);
+      // Skip if already handled by CatchAttemptModal's onResult
+      const resolveKey = `missed-${latestEvent.args.slotIndex}`;
+      if (resolvedByCatchModalRef.current.has(resolveKey)) {
+        resolvedByCatchModalRef.current.delete(resolveKey);
+        return;
+      }
+
+      console.log('[App] FailedCatch event for current user (event-based):', latestEvent.args);
 
       if (catchResultRef.current) {
         catchResultRef.current(false, latestEvent.args.pokemonId);
@@ -291,6 +308,51 @@ function AppContent() {
     }
   }, []);
 
+  // Handle ThrowResult from CatchAttemptModal (via useThrowBall's VRF event resolution)
+  const handleThrowResult = useCallback((result: ThrowResult) => {
+    console.log('[App] ThrowResult from CatchAttemptModal:', result);
+
+    // Mark this slot as resolved by the modal so the event-based useEffects don't double-process
+    if (result.slotIndex !== undefined) {
+      resolvedByCatchModalRef.current.add(`${result.status}-${result.slotIndex}`);
+    }
+
+    if (result.status === 'caught' && result.pokemonId !== undefined) {
+      // Notify Phaser
+      if (catchResultRef.current) {
+        catchResultRef.current(true, result.pokemonId);
+      }
+
+      setSelectedPokemon(null);
+
+      const nftMint = result.nftMint;
+      const hasNFT = nftMint && nftMint !== '11111111111111111111111111111111';
+
+      if (hasNFT) {
+        setCatchWin({
+          tokenId: BigInt(0),
+          pokemonId: result.pokemonId,
+          txSignature: result.txSignature,
+        });
+        addToast('You caught a Pokemon and won an NFT!', 'success');
+      } else {
+        addToast('Pokemon caught! But the NFT vault was empty — no NFT awarded this time.', 'warning');
+      }
+    } else if (result.status === 'missed' && result.pokemonId !== undefined) {
+      if (catchResultRef.current) {
+        catchResultRef.current(false, result.pokemonId);
+      }
+
+      setSelectedPokemon(null);
+
+      setCatchFailure({
+        type: 'failure',
+        pokemonId: result.pokemonId,
+        attemptsRemaining: result.attemptsRemaining ?? 0,
+      });
+    }
+  }, [addToast]);
+
   const handleShowHelp = useCallback(() => {
     setShowHelp(true);
   }, []);
@@ -374,6 +436,7 @@ function AppContent() {
         slotIndex={selectedPokemon?.slotIndex ?? 0}
         attemptsRemaining={selectedPokemon?.attemptsRemaining ?? 0}
         onVisualThrow={handleVisualThrow}
+        onResult={handleThrowResult}
       />
 
       {/* Catch Win Modal */}
