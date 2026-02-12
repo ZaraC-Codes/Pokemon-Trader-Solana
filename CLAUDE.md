@@ -5,7 +5,7 @@
 Pokemon Trader is a 2D pixel art game on Solana (ported from ApeChain/EVM). Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolCatch (SOLCATCH) as the payment token.
 
 - **Version**: 0.1.0
-- **Status**: Solana program deployed & initialized on devnet, revenue processor backend implemented, frontend ported to Solana (builds successfully, migration QA complete)
+- **Status**: Solana program deployed & initialized on devnet, NFT auto-transfer on catch implemented, ApeChain behavioral parity complete, revenue processor backend implemented, frontend ported to Solana (builds successfully)
 - **Network**: Solana Devnet (mainnet-beta planned)
 - **Program ID**: `B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ`
 - **Architecture Doc**: `docs/SOLANA_ARCHITECTURE.md` (v1.1)
@@ -100,7 +100,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │       │   ├── lib.rs                   # Program entrypoint, 12 instructions
 │       │   ├── state.rs                 # 7 account structs (GameConfig, PokemonSlots, etc.)
 │       │   ├── constants.rs             # Seeds, defaults, limits
-│       │   ├── errors.rs               # 25 error codes
+│       │   ├── errors.rs               # 26 error codes
 │       │   ├── events.rs               # 14 events
 │       │   └── instructions/
 │       │       ├── mod.rs                   # Module re-exports
@@ -111,7 +111,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │       │       ├── reposition_pokemon.rs    # Move Pokemon to new position (authority)
 │       │       ├── despawn_pokemon.rs       # Remove Pokemon from slot (authority)
 │       │       ├── throw_ball.rs            # Player throws ball, requests VRF
-│       │       ├── consume_randomness.rs    # VRF callback: catch/spawn resolution
+│       │       ├── consume_randomness.rs    # VRF callback: catch/spawn resolution + NFT auto-transfer via remaining_accounts
 │       │       ├── deposit_nft.rs           # Deposit Metaplex NFT into vault (authority)
 │       │       ├── withdraw_nft.rs          # Withdraw NFT from vault (authority)
 │       │       ├── admin.rs                 # set_ball_price, set_catch_rate, set_max_active_pokemon
@@ -120,7 +120,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │
 ├── target/                      # Anchor build output
 │   ├── deploy/
-│   │   ├── pokeball_game.so            # Compiled program binary (536KB)
+│   │   ├── pokeball_game.so            # Compiled program binary (538KB)
 │   │   └── pokeball_game-keypair.json  # Program deploy keypair
 │   ├── idl/
 │   │   └── pokeball_game.json          # Anchor IDL (63KB, 12 instructions)
@@ -135,10 +135,10 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   └── src/
 │       ├── index.ts                     # Express server + cron scheduler
 │       ├── config.ts                    # Env var loading & validation
-│       ├── solanaClient.ts              # Anchor program client (PDAs, withdraw, deposit)
+│       ├── solanaClient.ts              # Anchor program client (PDAs, withdraw, deposit, ALT management)
 │       ├── revenueProcessor.ts          # Swap pipeline (Jupiter) + USDC split
 │       ├── gachaClient.ts              # Collector Crypt Gacha API client
-│       ├── nftDepositor.ts             # NFT scan + vault deposit
+│       ├── nftDepositor.ts             # NFT scan + vault deposit + ALT extension
 │       └── __tests__/
 │           └── revenueProcessor.test.ts # Unit tests (split, thresholds)
 │
@@ -149,7 +149,11 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   ├── deposit-nft.ts               # Deposit NFT into vault
 │   ├── check-state.ts               # Read and display all on-chain state
 │   ├── set-prices.ts                # Update ball prices / catch rates
-│   └── withdraw-revenue.ts          # Withdraw SolCatch revenue
+│   ├── withdraw-revenue.ts          # Withdraw SolCatch revenue
+│   ├── create-vault-alt.ts          # Create Address Lookup Table for vault NFTs
+│   ├── mint-test-nfts.ts            # Mint fake test NFTs + deposit into vault (devnet)
+│   ├── run-create-alt.bat           # Windows batch: create ALT with env vars
+│   └── run-mint-test-nfts.bat       # Windows batch: mint test NFTs with env vars
 │
 ├── tests/                       # Anchor integration tests
 │   └── pokeball_game.ts             # Full test suite
@@ -211,7 +215,7 @@ B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ
 | `reposition_pokemon` | Authority | Move existing Pokemon to new position. Resets throw attempts. |
 | `despawn_pokemon` | Authority | Remove Pokemon from slot. |
 | `throw_ball` | Player | Decrement ball, request ORAO VRF for catch determination. |
-| `consume_randomness` | Anyone | Read fulfilled VRF, resolve spawn position or catch/miss. Awards NFT on catch. |
+| `consume_randomness` | Anyone | Read fulfilled VRF, resolve spawn/catch. On catch: selects random NFT from vault via `remaining_accounts`, transfers to player wallet atomically. Uses vault swap-and-pop to prevent double-award. |
 | `deposit_nft` | Authority | Transfer Metaplex NFT into vault PDA. |
 | `withdraw_nft` | Authority | Transfer NFT from vault back to authority (admin recovery). |
 | `set_ball_price` | Authority | Update price for a ball tier. |
@@ -238,9 +242,9 @@ B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ
 | `MaxActivePokemonUpdated` | `set_max_active_pokemon` | old_max, new_max |
 | `RevenueWithdrawn` | `withdraw_revenue` | recipient, amount |
 
-### Error Codes (25)
+### Error Codes (26)
 
-`AlreadyInitialized`, `NotInitialized`, `InvalidBallType`, `InvalidCatchRate`, `InsufficientBalls`, `SlotNotActive`, `SlotAlreadyOccupied`, `InvalidSlotIndex`, `MaxAttemptsReached`, `InvalidCoordinate`, `MaxActivePokemonReached`, `InvalidMaxActivePokemon`, `VaultFull`, `VaultEmpty`, `InvalidNftIndex`, `NftNotInVault`, `InsufficientSolBalls`, `ZeroQuantity`, `PurchaseExceedsMax`, `VrfAlreadyFulfilled`, `VrfNotFulfilled`, `InvalidVrfRequestType`, `InsufficientWithdrawalAmount`, `MathOverflow`, `ZeroBallPrice`, `Unauthorized`
+`AlreadyInitialized`, `NotInitialized`, `InvalidBallType`, `InvalidCatchRate`, `InsufficientBalls`, `SlotNotActive`, `SlotAlreadyOccupied`, `InvalidSlotIndex`, `MaxAttemptsReached`, `InvalidCoordinate`, `MaxActivePokemonReached`, `InvalidMaxActivePokemon`, `VaultFull`, `VaultEmpty`, `InvalidNftIndex`, `NftNotInVault`, `InsufficientSolBalls`, `ZeroQuantity`, `PurchaseExceedsMax`, `VrfAlreadyFulfilled`, `VrfNotFulfilled`, `InvalidVrfRequestType`, `InsufficientWithdrawalAmount`, `MathOverflow`, `ZeroBallPrice`, `Unauthorized`, `NftTransferAccountsMissing`
 
 ### Constants
 
@@ -248,11 +252,13 @@ B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ
 |----------|-------|-------------|
 | `MAX_POKEMON_SLOTS` | 20 | Hard cap on simultaneous Pokemon |
 | `MAX_COORDINATE` | 999 | Position range (0-999) |
-| `MAX_THROW_ATTEMPTS` | 3 | Throws before Pokemon despawns |
+| `MAX_THROW_ATTEMPTS` | 3 | Throws before Pokemon relocates (ApeChain parity) |
 | `MAX_VAULT_SIZE` | 20 | Max NFTs in vault |
 | `NUM_BALL_TYPES` | 4 | Poke, Great, Ultra, Master |
+| `MAX_PURCHASE_PER_TX` | 99 | Max balls per purchase transaction |
 | `VRF_TYPE_SPAWN` | 0 | VRF request for spawn |
 | `VRF_TYPE_THROW` | 1 | VRF request for throw |
+| `MAX_LEGACY_NFTS` | 7 | Max vault NFTs in legacy (non-ALT) transaction |
 
 ### PDA Seeds
 
@@ -308,6 +314,58 @@ It must be deserialized from raw `AccountInfo` using `try_deserialize()`. It is 
 - **Catch determination**: bytes [0..8] → roll (modulo 100) vs catch_rate
 - **NFT selection**: bytes [8..16] → index (modulo vault count)
 
+## NFT Auto-Transfer on Catch
+
+When a player catches a Pokemon, the NFT is transferred from the vault to their wallet atomically inside the `consume_randomness` instruction — matching ApeChain's `slabNFTManager.awardNFTToWinnerWithRandomness()` behavior.
+
+### The Challenge
+
+On Solana, ALL accounts must be declared upfront in the transaction before execution. But we don't know WHICH NFT will be randomly selected until inside `consume_randomness`, after VRF bytes are read.
+
+### Solution: `remaining_accounts` Pattern
+
+Pass ALL vault NFTs as `remaining_accounts` in groups of 3 (mint, vault_ata, player_ata). The on-chain program uses VRF to pick one, finds it in remaining_accounts, and executes the transfer.
+
+**Flow:**
+1. Frontend fetches vault state (`nft_vault.mints[0..count]`)
+2. For each active NFT: derive vault ATA + player ATA
+3. Create missing player ATAs in a preceding transaction
+4. Build `remaining_accounts` array (groups of 3 per NFT)
+5. On-chain: `VRF[8..16] % vault.count` selects random NFT index
+6. On-chain: swap-and-pop ALWAYS removes NFT from vault (prevents double-award)
+7. On-chain: iterate remaining_accounts to find matching mint, execute SPL transfer CPI
+
+**Safety properties:**
+- **No pre-selection**: All vault mints passed equally; random index computed inside program
+- **No double-award**: Vault swap-and-pop executes BEFORE transfer attempt
+- **Atomic**: Catch determination + NFT selection + transfer + vault update in one instruction
+- **Graceful degradation**: If remaining_accounts missing the winning mint, NFT still removed from vault (backend sweeper can transfer later)
+
+### Transaction Size: Dual-Path Strategy
+
+| Vault NFTs | Transaction Type | Why |
+|------------|-----------------|-----|
+| 1-7 NFTs | Legacy `Transaction` | Fits in 1232-byte limit (~508 + 99N bytes per NFT group) |
+| 8-20 NFTs | `VersionedTransaction` v0 with ALT | Address Lookup Table reduces per-account cost from 32 bytes to 1 byte index |
+
+**Address Lookup Table (ALT):**
+- Created once via `scripts/solana/create-vault-alt.ts`
+- Extended by backend `nftDepositor.ts` when new NFTs are deposited
+- Contains all vault NFT mints + vault ATAs (up to 40 entries for 20 NFTs)
+- Frontend reads ALT address from `VITE_VAULT_ALT_ADDRESS` env var
+- Player ATAs are NOT in the ALT (they change per player)
+- Devnet ALT: `3iiRu5SejD9PyZn1tBMhH7euCkBZ1XcPiY2nLqb8ZY9M`
+
+### ApeChain Parity
+
+| Step | ApeChain | Solana |
+|------|----------|--------|
+| Win/lose determined | `randomNumber % 100 < catchRate` | `VRF[0..8] % 100 < catch_rate` |
+| NFT selected | `slabNFTManager.awardNFTToWinnerWithRandomness(catcher, randomNumber)` | `nft_vault.mints[VRF[8..16] % count]` |
+| NFT transferred | Inside `awardNFTToWinnerWithRandomness` (same tx) | `token::transfer` CPI inside `consume_randomness` (same tx) |
+| Vault updated | Inside NFT manager (swap-and-pop) | Swap-and-pop on `nft_vault.mints` (same tx) |
+| Empty vault | `revertOnNoNFT` flag | Continue with `nft_mint = Pubkey::default()` (Pokemon still caught) |
+
 ## Deployment Details
 
 ### Devnet (Current)
@@ -316,8 +374,8 @@ It must be deserialized from raw `AccountInfo` using `try_deserialize()`. It is 
 |--------|-------|
 | **Program ID** | `B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ` |
 | **Deploy Authority** | `FLNticLtYTTzFmNLQ2oAExJWNqew929h2SrCgqy9LJER` |
-| **Program Size** | 536,384 bytes |
-| **Program Rent** | ~3.73 SOL |
+| **Program Size** | 538,064 bytes |
+| **Program Rent** | ~3.75 SOL |
 | **Cluster** | `devnet` |
 
 ### SolCatch Token (Devnet)
@@ -340,6 +398,7 @@ It must be deserialized from raw `AccountInfo` using `try_deserialize()`. It is 
 | NftVault | `HsrZJEGNaM3zwZtwyYR7KeLypKNXngNM7gAFB8Pgru7Z` |
 | TreasuryConfig | `Hy9xsD9i5cDuS6z69gk3VydArBecyMnTkvHxLeFxmit` |
 | Game SolCatch ATA | `35bJfktpueU4ezhk3BgmW3yV7aChp5asUZhVYM8HJUqW` |
+| Vault ALT | `3iiRu5SejD9PyZn1tBMhH7euCkBZ1XcPiY2nLqb8ZY9M` |
 
 ### Wallet Addresses
 
@@ -422,6 +481,16 @@ npx tsx scripts/solana/set-prices.ts --ball-type 0 --price 2000000000
 
 # Withdraw SOLCATCH revenue (9 decimals)
 npx tsx scripts/solana/withdraw-revenue.ts --amount 1000000000
+
+# Create Address Lookup Table for vault (one-time, outputs ALT address for .env)
+npx tsx scripts/solana/create-vault-alt.ts
+
+# Mint test NFTs + deposit into vault + extend ALT (devnet only)
+npx tsx scripts/solana/mint-test-nfts.ts --count 3 --alt <ALT_ADDRESS>
+
+# Windows batch files (set env vars automatically using WSL keypair path)
+scripts\solana\run-create-alt.bat
+scripts\solana\run-mint-test-nfts.bat
 ```
 
 ## Key Technical Notes
@@ -440,6 +509,19 @@ npx tsx scripts/solana/withdraw-revenue.ts --amount 1000000000
 - Fixed-size arrays `[Pubkey; 20]` for vault mints (avoids Vec realloc in Solana)
 - Swap-and-pop O(1) removal from fixed arrays
 - PDA signer: `&[&[SEED, &[bump]]]` pattern
+- **Lifetime annotations for `remaining_accounts`**: When a handler accesses both `ctx.remaining_accounts` and `ctx.accounts` fields, explicit lifetime annotations are required on the handler function AND the `lib.rs` wrapper:
+  ```rust
+  // In lib.rs wrapper:
+  pub fn consume_randomness<'info>(
+      ctx: Context<'_, '_, 'info, 'info, ConsumeRandomness<'info>>,
+  ) -> Result<()> { ... }
+
+  // In handler:
+  pub fn handler<'info>(
+      ctx: Context<'_, '_, 'info, 'info, ConsumeRandomness<'info>>,
+  ) -> Result<()> { ... }
+  ```
+- **`remaining_accounts` iteration**: Variable-length account lists in groups of 3 (mint, vault_ata, player_ata) for NFT transfers. On-chain program iterates to find the VRF-selected mint and executes SPL transfer CPI.
 
 ### Solana-Specific Constraints
 - 4KB stack frame limit — box all large accounts (`Box<Account<...>>`)
@@ -467,8 +549,10 @@ See `.env.example` for the complete template. Key variables:
 | `ADMIN_API_KEY` | Shared secret for backend admin endpoints |
 | `MIN_SOLBALLS_TO_SWAP` | Threshold to trigger swap (atomic units, 9 decimals) |
 | `PACK_COST_USDC` | Gacha pack cost (atomic units, default 50M = $50) |
+| `VAULT_ALT_ADDRESS` | Address Lookup Table for vault NFTs (backend, devnet: `3iiRu5SejD9PyZn1tBMhH7euCkBZ1XcPiY2nLqb8ZY9M`) |
 | `VITE_POKEBALL_GAME_PROGRAM_ID` | Program ID for frontend |
 | `VITE_SOLANA_NETWORK` | Network for frontend wallet adapter (`devnet` or `mainnet-beta`) |
+| `VITE_VAULT_ALT_ADDRESS` | Address Lookup Table for vault NFTs (frontend, same as `VAULT_ALT_ADDRESS`) |
 
 ## Frontend (Ported to Solana)
 
@@ -479,7 +563,7 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 | Layer | Files | Description |
 |-------|-------|-------------|
 | Wallet Provider | `src/solana/wallet.tsx` | `SolanaWalletProvider` — ConnectionProvider + WalletProvider + WalletModalProvider |
-| Program Client | `src/solana/programClient.ts` | Anchor IDL-based client with PDA derivation helpers |
+| Program Client | `src/solana/programClient.ts` | Anchor IDL-based client, PDA derivation, `consumeRandomnessWithRetry()` with vault fetch + remaining_accounts + dual-path (legacy/versioned tx) |
 | Constants | `src/solana/constants.ts` | Ball prices, catch rates, decimals, program ID |
 | Hooks | `src/hooks/solana/` | 8 hooks for on-chain interactions |
 | Components | `src/components/` | Rewritten for Solana (PokeBallShop, CatchAttemptModal, etc.) |
@@ -491,7 +575,7 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 | `useActiveWeb3React` | Returns `{ account: string }` from `useWallet().publicKey` |
 | `usePlayerInventory` | Reads `PlayerInventory` PDA (ball counts, stats) with polling |
 | `usePurchaseBalls` | Calls `purchase_balls` instruction |
-| `useThrowBall` | Calls `throw_ball` instruction, listens for VRF result events, exposes `ThrowResult` lifecycle (`caught`/`missed`/`error`) with 12s timeout |
+| `useThrowBall` | Calls `throw_ball` instruction, listens for VRF result events, exposes `ThrowResult` lifecycle (`caught`/`missed`/`relocated`/`error`) with 12s timeout, extracts `nftMint` from caught log |
 | `usePokemonSpawns` | Reads `PokemonSlots` PDA, returns active spawns |
 | `useSolBallsBalance` | Reads player's SolCatch token account balance |
 | `useSolanaEvents` | WebSocket event listener for Anchor program events |
@@ -566,11 +650,11 @@ All endpoints (except `/health`) require `X-ADMIN-KEY` header.
 
 | File | Responsibility |
 |------|---------------|
-| `solanaClient.ts` | Anchor wrapper: PDA derivation, `withdrawRevenue()`, `depositNft()`, `findNewNftsInWallet()`, `signAndSendTransaction()` |
+| `solanaClient.ts` | Anchor wrapper: PDA derivation, `withdrawRevenue()`, `depositNft()`, `findNewNftsInWallet()`, `signAndSendTransaction()`, ALT management (`createVaultAlt()`, `extendVaultAlt()`, `extendAltForNewNft()`) |
 | `revenueProcessor.ts` | Jupiter quote/swap, `splitUsdcAmounts()`, `shouldRunSwap()`, full pipeline orchestration |
 | `gachaClient.ts` | Gacha API: `purchasePack()` (generate→sign→submit→open), `purchaseMultiplePacks()` |
-| `nftDepositor.ts` | Scan wallet for NFTs not in vault, deposit each via `deposit_nft` instruction |
-| `config.ts` | All env vars with validation (revenue split must total 100) |
+| `nftDepositor.ts` | Scan wallet for NFTs not in vault, deposit each via `deposit_nft` instruction, extend ALT after each deposit |
+| `config.ts` | All env vars with validation (revenue split must total 100), `VAULT_ALT_ADDRESS` |
 
 ## Coding Conventions
 
