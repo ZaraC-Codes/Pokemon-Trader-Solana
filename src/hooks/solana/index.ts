@@ -92,6 +92,17 @@ export {
 } from './useSolanaEvents';
 
 // ============================================================
+// TRANSACTION LOG PERSISTENCE
+// ============================================================
+
+export {
+  useTransactionLog,
+  type PersistedGameEvent,
+  type PersistedEventType,
+  type UseTransactionLogReturn,
+} from './useTransactionLog';
+
+// ============================================================
 // CONSTANTS RE-EXPORTS (convenience)
 // ============================================================
 

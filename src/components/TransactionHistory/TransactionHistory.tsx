@@ -1,20 +1,16 @@
 /**
  * TransactionHistory Component (Solana)
  *
- * Displays recent game events from Anchor program event subscriptions.
+ * Displays game events from a persisted transaction log.
  * Layout restored 1:1 from the original ApeChain version.
  *
- * Session-based: events arrive via WebSocket while connected.
+ * Events are persisted in localStorage per wallet and survive
+ * page refreshes and new frontend deployments.
  */
 
 import { useState, useMemo, useCallback } from 'react';
-import {
-  useCaughtPokemonEvents,
-  useFailedCatchEvents,
-  useBallPurchasedEvents,
-  useThrowAttemptedEvents,
-  SOLBALLS_DECIMALS,
-} from '../../hooks/solana';
+import { SOLBALLS_DECIMALS } from '../../hooks/solana';
+import type { PersistedGameEvent } from '../../hooks/solana';
 
 // ============================================================
 // TYPE DEFINITIONS
@@ -24,24 +20,13 @@ export interface TransactionHistoryProps {
   isOpen: boolean;
   onClose: () => void;
   playerAddress?: string;
+  /** Persisted events from useTransactionLog (already sorted newest-first) */
+  events: readonly PersistedGameEvent[];
+  /** Callback to clear the persisted log */
+  onClearLog?: () => void;
 }
 
 type EventType = 'purchase' | 'throw' | 'caught' | 'escaped';
-
-interface GameEvent {
-  type: EventType;
-  label: string;
-  pokemonId?: string;
-  slotIndex?: number;
-  ballType?: number;
-  ballName?: string;
-  quantity?: number;
-  totalCost?: bigint;
-  attemptsRemaining?: number;
-  nftMint?: string;
-  timestamp: number;
-  key: string;
-}
 
 // ============================================================
 // CONSTANTS
@@ -86,7 +71,7 @@ function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-function getSolanaExplorerUrl(txSig?: string): string | null {
+function _getSolanaExplorerUrl(txSig?: string): string | null {
   if (!txSig) return null;
   const cluster = import.meta.env.VITE_SOLANA_NETWORK || 'devnet';
   const clusterParam = cluster === 'mainnet-beta' ? '' : `?cluster=${cluster}`;
@@ -141,6 +126,15 @@ const styles = {
     background: 'none',
     border: '2px solid #00ff88',
     color: '#00ff88',
+    padding: '4px 10px',
+    cursor: 'pointer',
+    fontFamily: "'Courier New', monospace",
+    fontSize: '11px',
+  },
+  clearButton: {
+    background: 'none',
+    border: '2px solid #ff8800',
+    color: '#ff8800',
     padding: '4px 10px',
     cursor: 'pointer',
     fontFamily: "'Courier New', monospace",
@@ -281,11 +275,11 @@ const styles = {
 // SUB-COMPONENTS
 // ============================================================
 
-function PurchaseCard({ event, now }: { event: GameEvent; now: number }) {
+function PurchaseCard({ event, now }: { event: PersistedGameEvent; now: number }) {
   const ballName = event.ballName || 'Ball';
   const qty = event.quantity || 0;
   const cost = event.totalCost !== undefined
-    ? (Number(event.totalCost) / Math.pow(10, SOLBALLS_DECIMALS)).toFixed(1)
+    ? (Number(BigInt(event.totalCost)) / Math.pow(10, SOLBALLS_DECIMALS)).toFixed(1)
     : '?';
 
   return (
@@ -307,7 +301,7 @@ function PurchaseCard({ event, now }: { event: GameEvent; now: number }) {
   );
 }
 
-function ThrowCard({ event, now }: { event: GameEvent; now: number }) {
+function ThrowCard({ event, now }: { event: PersistedGameEvent; now: number }) {
   return (
     <div style={styles.eventCard}>
       <div style={{ ...styles.badge, color: BADGE_COLORS.throw, backgroundColor: BADGE_BG.throw, border: `1px solid ${BADGE_COLORS.throw}` }}>
@@ -327,7 +321,7 @@ function ThrowCard({ event, now }: { event: GameEvent; now: number }) {
   );
 }
 
-function CaughtCard({ event, now }: { event: GameEvent; now: number }) {
+function CaughtCard({ event, now }: { event: PersistedGameEvent; now: number }) {
   return (
     <div style={styles.eventCard}>
       <div style={{ ...styles.badge, color: BADGE_COLORS.caught, backgroundColor: BADGE_BG.caught, border: `1px solid ${BADGE_COLORS.caught}` }}>
@@ -344,7 +338,7 @@ function CaughtCard({ event, now }: { event: GameEvent; now: number }) {
   );
 }
 
-function EscapedCard({ event, now }: { event: GameEvent; now: number }) {
+function EscapedCard({ event, now }: { event: PersistedGameEvent; now: number }) {
   return (
     <div style={styles.eventCard}>
       <div style={{ ...styles.badge, color: BADGE_COLORS.escaped, backgroundColor: BADGE_BG.escaped, border: `1px solid ${BADGE_COLORS.escaped}` }}>
@@ -365,76 +359,13 @@ function EscapedCard({ event, now }: { event: GameEvent; now: number }) {
 // MAIN COMPONENT
 // ============================================================
 
-export function TransactionHistory({ isOpen, onClose, playerAddress }: TransactionHistoryProps) {
-  const { events: caughtEvents } = useCaughtPokemonEvents();
-  const { events: failedEvents } = useFailedCatchEvents();
-  const { events: purchaseEvents } = useBallPurchasedEvents();
-  const { events: throwEvents } = useThrowAttemptedEvents();
+export function TransactionHistory({ isOpen, onClose, playerAddress, events: persistedEvents, onClearLog }: TransactionHistoryProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [now, setNow] = useState(Date.now());
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  // Build unified event list
-  const allEvents = useMemo(() => {
-    const events: GameEvent[] = [];
-
-    for (const ev of purchaseEvents) {
-      if (playerAddress && ev.args.buyer !== playerAddress) continue;
-      events.push({
-        type: 'purchase',
-        label: 'PURCHASED',
-        ballType: ev.args.ballType,
-        ballName: BALL_NAMES[ev.args.ballType] || 'Ball',
-        quantity: ev.args.quantity,
-        totalCost: ev.args.totalCost,
-        timestamp: ev.receivedAt,
-        key: ev.eventKey,
-      });
-    }
-
-    for (const ev of throwEvents) {
-      if (playerAddress && ev.args.thrower !== playerAddress) continue;
-      events.push({
-        type: 'throw',
-        label: 'THROW',
-        pokemonId: ev.args.pokemonId.toString(),
-        slotIndex: ev.args.slotIndex,
-        ballType: ev.args.ballType,
-        ballName: BALL_NAMES[ev.args.ballType] || 'Ball',
-        timestamp: ev.receivedAt,
-        key: ev.eventKey,
-      });
-    }
-
-    for (const ev of caughtEvents) {
-      if (playerAddress && ev.args.catcher !== playerAddress) continue;
-      events.push({
-        type: 'caught',
-        label: 'CAUGHT!',
-        pokemonId: ev.args.pokemonId.toString(),
-        slotIndex: ev.args.slotIndex,
-        nftMint: ev.args.nftMint,
-        timestamp: ev.receivedAt,
-        key: ev.eventKey,
-      });
-    }
-
-    for (const ev of failedEvents) {
-      if (playerAddress && ev.args.thrower !== playerAddress) continue;
-      events.push({
-        type: 'escaped',
-        label: 'ESCAPED',
-        pokemonId: ev.args.pokemonId.toString(),
-        slotIndex: ev.args.slotIndex,
-        attemptsRemaining: ev.args.attemptsRemaining,
-        timestamp: ev.receivedAt,
-        key: ev.eventKey,
-      });
-    }
-
-    // Sort newest first
-    events.sort((a, b) => b.timestamp - a.timestamp);
-    return events;
-  }, [caughtEvents, failedEvents, purchaseEvents, throwEvents, playerAddress]);
+  // Events are already sorted newest-first from useTransactionLog
+  const allEvents = persistedEvents;
 
   // Compute stats
   const stats = useMemo(() => {
@@ -448,7 +379,11 @@ export function TransactionHistory({ isOpen, onClose, playerAddress }: Transacti
     let totalSolCatch = BigInt(0);
     for (const ev of allEvents) {
       if (ev.type === 'purchase' && ev.totalCost !== undefined) {
-        totalSolCatch += ev.totalCost;
+        try {
+          totalSolCatch += BigInt(ev.totalCost);
+        } catch {
+          // ignore malformed totalCost
+        }
       }
     }
     const totalSolCatchDisplay = (Number(totalSolCatch) / Math.pow(10, SOLBALLS_DECIMALS)).toFixed(2);
@@ -467,6 +402,17 @@ export function TransactionHistory({ isOpen, onClose, playerAddress }: Transacti
     setNow(Date.now());
   }, []);
 
+  const handleClearClick = useCallback(() => {
+    if (confirmClear) {
+      onClearLog?.();
+      setConfirmClear(false);
+    } else {
+      setConfirmClear(true);
+      // Auto-reset confirm state after 3 seconds
+      setTimeout(() => setConfirmClear(false), 3000);
+    }
+  }, [confirmClear, onClearLog]);
+
   if (!isOpen) return null;
 
   return (
@@ -477,6 +423,11 @@ export function TransactionHistory({ isOpen, onClose, playerAddress }: Transacti
           <h2 style={styles.title}>TRANSACTION LOG</h2>
           <div style={styles.headerButtons}>
             <button style={styles.refreshButton} onClick={handleRefresh}>REFRESH</button>
+            {onClearLog && allEvents.length > 0 && (
+              <button style={styles.clearButton} onClick={handleClearClick}>
+                {confirmClear ? 'CONFIRM?' : 'CLEAR'}
+              </button>
+            )}
             <button style={styles.closeButton} onClick={onClose}>CLOSE</button>
           </div>
         </div>
@@ -512,7 +463,7 @@ export function TransactionHistory({ isOpen, onClose, playerAddress }: Transacti
             <div style={styles.spendingValue}>{stats.totalSolCatchDisplay}</div>
           </div>
           <div style={styles.spendingItem}>
-            <div style={styles.spendingLabel}>Session Events</div>
+            <div style={styles.spendingLabel}>Total Events</div>
             <div style={styles.spendingValue}>{allEvents.length}</div>
           </div>
         </div>
@@ -521,10 +472,10 @@ export function TransactionHistory({ isOpen, onClose, playerAddress }: Transacti
         <div style={styles.eventList}>
           {visibleEvents.length === 0 ? (
             <div style={styles.emptyMessage}>
-              No transactions this session.
+              No transactions recorded yet.
               <br />
               <span style={{ fontSize: '12px', color: '#555' }}>
-                Events are tracked from when you connected.
+                Events are saved automatically as you play.
               </span>
             </div>
           ) : (
@@ -557,7 +508,7 @@ export function TransactionHistory({ isOpen, onClose, playerAddress }: Transacti
             </div>
           ) : null}
           <div style={styles.sessionNote}>
-            Session-based log • Events tracked since wallet connect
+            Persisted log • Saved to browser storage per wallet
           </div>
         </div>
       </div>

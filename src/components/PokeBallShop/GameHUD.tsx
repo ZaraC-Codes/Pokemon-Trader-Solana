@@ -27,11 +27,17 @@
  * ```
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   usePlayerInventory,
   getBallTypeName,
+  useBallPurchasedEvents,
+  useThrowAttemptedEvents,
+  useCaughtPokemonEvents,
+  useFailedCatchEvents,
+  useTransactionLog,
   type BallType,
+  type PersistedGameEvent,
 } from '../../hooks/solana';
 import { PokeBallShop } from './PokeBallShop';
 import { TransactionHistory } from '../TransactionHistory';
@@ -353,6 +359,8 @@ function BallInventorySection({
 // MAIN COMPONENT
 // ============================================================
 
+const BALL_NAMES_MAP = ['Poke Ball', 'Great Ball', 'Ultra Ball', 'Master Ball'];
+
 export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
   const [shopOpen, setShopOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -372,6 +380,124 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
 
   // Solana hook reads connected wallet internally — no address arg needed
   const inventory = usePlayerInventory();
+
+  // ============================================================
+  // PERSISTED TRANSACTION LOG
+  // ============================================================
+
+  const { events: persistedEvents, appendEvents, clearLog } = useTransactionLog(playerAddress);
+
+  // Subscribe to WebSocket events and pipe into persisted log
+  const { events: purchaseEvents } = useBallPurchasedEvents();
+  const { events: throwEvents } = useThrowAttemptedEvents();
+  const { events: caughtEvents } = useCaughtPokemonEvents();
+  const { events: failedEvents } = useFailedCatchEvents();
+
+  // Track how many events we've already processed to avoid re-processing
+  const processedCountRef = useRef({
+    purchases: 0,
+    throws: 0,
+    caught: 0,
+    failed: 0,
+  });
+
+  // Pipe new purchase events into persisted log
+  useEffect(() => {
+    if (!playerAddress) return;
+    const prev = processedCountRef.current.purchases;
+    if (purchaseEvents.length <= prev) return;
+
+    const newEvents: PersistedGameEvent[] = [];
+    for (let i = prev; i < purchaseEvents.length; i++) {
+      const ev = purchaseEvents[i];
+      if (ev.args.buyer !== playerAddress) continue;
+      newEvents.push({
+        key: ev.eventKey,
+        type: 'purchase',
+        timestamp: ev.receivedAt,
+        slot: ev.slot,
+        ballType: ev.args.ballType,
+        ballName: BALL_NAMES_MAP[ev.args.ballType] || 'Ball',
+        quantity: ev.args.quantity,
+        totalCost: ev.args.totalCost.toString(),
+      });
+    }
+    processedCountRef.current.purchases = purchaseEvents.length;
+    if (newEvents.length > 0) appendEvents(newEvents);
+  }, [purchaseEvents, playerAddress, appendEvents]);
+
+  // Pipe new throw events
+  useEffect(() => {
+    if (!playerAddress) return;
+    const prev = processedCountRef.current.throws;
+    if (throwEvents.length <= prev) return;
+
+    const newEvents: PersistedGameEvent[] = [];
+    for (let i = prev; i < throwEvents.length; i++) {
+      const ev = throwEvents[i];
+      if (ev.args.thrower !== playerAddress) continue;
+      newEvents.push({
+        key: ev.eventKey,
+        type: 'throw',
+        timestamp: ev.receivedAt,
+        slot: ev.slot,
+        pokemonId: ev.args.pokemonId.toString(),
+        slotIndex: ev.args.slotIndex,
+        ballType: ev.args.ballType,
+        ballName: BALL_NAMES_MAP[ev.args.ballType] || 'Ball',
+      });
+    }
+    processedCountRef.current.throws = throwEvents.length;
+    if (newEvents.length > 0) appendEvents(newEvents);
+  }, [throwEvents, playerAddress, appendEvents]);
+
+  // Pipe new caught events
+  useEffect(() => {
+    if (!playerAddress) return;
+    const prev = processedCountRef.current.caught;
+    if (caughtEvents.length <= prev) return;
+
+    const newEvents: PersistedGameEvent[] = [];
+    for (let i = prev; i < caughtEvents.length; i++) {
+      const ev = caughtEvents[i];
+      if (ev.args.catcher !== playerAddress) continue;
+      newEvents.push({
+        key: ev.eventKey,
+        type: 'caught',
+        timestamp: ev.receivedAt,
+        slot: ev.slot,
+        pokemonId: ev.args.pokemonId.toString(),
+        slotIndex: ev.args.slotIndex,
+        nftMint: ev.args.nftMint,
+      });
+    }
+    processedCountRef.current.caught = caughtEvents.length;
+    if (newEvents.length > 0) appendEvents(newEvents);
+  }, [caughtEvents, playerAddress, appendEvents]);
+
+  // Pipe new failed catch events
+  useEffect(() => {
+    if (!playerAddress) return;
+    const prev = processedCountRef.current.failed;
+    if (failedEvents.length <= prev) return;
+
+    const newEvents: PersistedGameEvent[] = [];
+    for (let i = prev; i < failedEvents.length; i++) {
+      const ev = failedEvents[i];
+      if (ev.args.thrower !== playerAddress) continue;
+      newEvents.push({
+        key: ev.eventKey,
+        type: 'escaped',
+        timestamp: ev.receivedAt,
+        slot: ev.slot,
+        pokemonId: ev.args.pokemonId.toString(),
+        slotIndex: ev.args.slotIndex,
+        attemptsRemaining: ev.args.attemptsRemaining,
+      });
+    }
+    processedCountRef.current.failed = failedEvents.length;
+    if (newEvents.length > 0) appendEvents(newEvents);
+  }, [failedEvents, playerAddress, appendEvents]);
 
   // No wallet connected - don't show HUD, let the styled RainbowKit button handle connection
   if (!playerAddress) {
@@ -430,6 +556,8 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
         isOpen={historyOpen}
         onClose={() => setHistoryOpen(false)}
         playerAddress={playerAddress}
+        events={persistedEvents}
+        onClearLog={clearLog}
       />
     </>
   );
