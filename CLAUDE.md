@@ -5,7 +5,7 @@
 Pokemon Trader is a 2D pixel art game on Solana (ported from ApeChain/EVM). Users explore a Pokemon-style game world, catch wild Pokemon using PokeBalls, and win NFTs. The Solana version uses an Anchor program, ORAO VRF for randomness, Collector Crypt Gacha API for NFT acquisition, Jupiter for token swaps, and SolCatch (SOLCATCH) as the payment token.
 
 - **Version**: 0.1.0
-- **Status**: Solana program deployed & initialized on devnet, NFT auto-transfer on catch implemented, ApeChain behavioral parity complete, revenue processor backend implemented, frontend ported to Solana (builds successfully)
+- **Status**: Solana program deployed & initialized on devnet, NFT auto-transfer on catch implemented, ApeChain behavioral parity complete, revenue processor backend implemented + auto-Gacha pipeline verified on devnet, frontend ported to Solana (builds successfully), transaction log persistence per wallet, central spawn logic for batch spawns
 - **Network**: Solana Devnet (mainnet-beta planned)
 - **Program ID**: `B93VJQKD5UW8qfNsLrQ4ZQvTG6AG7PZsR6o2WeBiboBZ`
 - **Architecture Doc**: `docs/SOLANA_ARCHITECTURE.md` (v1.1)
@@ -138,6 +138,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │       ├── solanaClient.ts              # Anchor program client (PDAs, withdraw, deposit, ALT management)
 │       ├── revenueProcessor.ts          # Swap pipeline (Jupiter) + USDC split
 │       ├── gachaClient.ts              # Collector Crypt Gacha API client
+│       ├── mockGacha.ts                # Mock NFT minting for devnet (when Gacha machine is empty)
 │       ├── nftDepositor.ts             # NFT scan + vault deposit + ALT extension
 │       └── __tests__/
 │           └── revenueProcessor.test.ts # Unit tests (split, thresholds)
@@ -145,7 +146,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 ├── scripts/solana/              # Admin CLI scripts (TypeScript)
 │   ├── common.ts                    # Shared setup: PDA derivation, helpers
 │   ├── initialize.ts                # Initialize game (one-time)
-│   ├── spawn-pokemon.ts             # Spawn Pokemon via VRF
+│   ├── spawn-pokemon.ts             # Spawn Pokemon via VRF (batch mode: 4 central + rest random)
 │   ├── deposit-nft.ts               # Deposit NFT into vault
 │   ├── check-state.ts               # Read and display all on-chain state
 │   ├── set-prices.ts                # Update ball prices / catch rates
@@ -175,6 +176,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   │   ├── usePokemonSpawns.ts          # Read PokemonSlots PDA
 │   │   ├── useSolBallsBalance.ts        # SolCatch token balance
 │   │   ├── useSolanaEvents.ts           # WebSocket event listener
+│   │   ├── useTransactionLog.ts         # Persistent transaction log (localStorage per wallet)
 │   │   └── useActiveWeb3React.ts        # Wallet adapter → { account }
 │   ├── components/                  # React UI components (rewritten for Solana)
 │   ├── game/                        # Phaser game code (mostly unchanged)
@@ -409,6 +411,14 @@ Pass ALL vault NFTs as `remaining_accounts` in groups of 3 (mint, vault_ata, pla
 | **Owner SolCatch ATA** | `52wkbUnqLBjDgpgkEHbf5PMwh6qt87qxtVhYQTPvEgY3` | 900,000 SOLCATCH |
 | **Tester SolCatch ATA** | `H14oa5d8RAUj3VqRUDu5PBK1pKz37CzYPrw1yw61p3nx` | 100,000 SOLCATCH |
 
+### Devnet USDC Airdrop (Credix Faucet)
+
+For testing, devnet USDC can be airdropped via the Credix SPL Token Faucet:
+- **Faucet Program**: `4sN8PnN2ki2W4TFXAfzR645FWs8nimmsYeNtxM8RBK6A`
+- **Devnet USDC Mint**: `Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr` (PDA of faucet with seed `"faucet-mint"`, bump 255)
+- **Instruction**: `airdrop(mint_bump: u8, amount: u64)` — discriminator from `sha256('global:airdrop')[0:8]`
+- **Accounts**: mint, destination ATA, payer, receiver, system_program, token_program, associated_token_program, rent
+
 ### Build Environment (WSL)
 
 - **WSL Distro**: Ubuntu, user `chanz08`
@@ -443,8 +453,10 @@ Player pays SOLCATCH → on-chain game token account
 - **Mainnet**: `https://gacha.collectorcrypt.com`
 - **Auth**: `x-api-key` header (get from Discord)
 - **Flow**: `generatePack` → sign tx → `submitTransaction` → `openPack`
-- **Cost**: ~$50 USDC per pack
+- **Pack Types**: `pokemon_50` ($50 USDC), `pokemon_250` ($250 USDC) — discovered via `/api/status` endpoint
+- **Cost**: ~$50 USDC per pack (default `pokemon_50`)
 - **Delivery**: NFTs sent to backend wallet, then deposited into vault
+- **Devnet Note**: Devnet Gacha machine is currently empty — use `MOCK_GACHA=true` to mint test NFTs locally instead
 
 ### Jupiter Aggregator
 - **API**: `https://lite-api.jup.ag/swap/v1`
@@ -492,6 +504,20 @@ npx tsx scripts/solana/mint-test-nfts.ts --count 3 --alt <ALT_ADDRESS>
 scripts\solana\run-create-alt.bat
 scripts\solana\run-mint-test-nfts.bat
 ```
+
+## Batch Spawn: Central Zone Logic
+
+The `spawn-pokemon.ts` script's `--batch` mode guarantees at least 4 Pokemon spawn near the player's starting position (map center), so the player always has something nearby when they first load in.
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `CENTER_X` | 500 | Player spawn center (contract coords) |
+| `CENTER_Y` | 500 | Player spawn center (contract coords) |
+| `CENTER_RADIUS` | 80 | ±80 contract units ≈ ±192px ≈ 12 tiles |
+| `MIN_CENTRAL_SPAWNS` | 4 | First N batch slots get central positions |
+| `EDGE_MARGIN` | 50 | Keep central spawns away from map edges |
+
+**Behavior**: In `--batch 0,1,2,3,4,5,6,7`, slots 0-3 spawn within (420-580, 420-580) in contract coords (central zone), slots 4-7 spawn anywhere on the full 0-999 map.
 
 ## Key Technical Notes
 
@@ -549,6 +575,9 @@ See `.env.example` for the complete template. Key variables:
 | `ADMIN_API_KEY` | Shared secret for backend admin endpoints |
 | `MIN_SOLBALLS_TO_SWAP` | Threshold to trigger swap (atomic units, 9 decimals) |
 | `PACK_COST_USDC` | Gacha pack cost (atomic units, default 50M = $50) |
+| `SKIP_REVENUE_SWAP` | Skip Phase 1 swap on devnet (`true`/`false`, default `false`) |
+| `MOCK_GACHA` | Mint test NFTs locally instead of Gacha API (`true`/`false`, default `false`) |
+| `CRON_INTERVAL_MS` | Cron tick interval in ms (default 300000 = 5min, use 30000 for testing) |
 | `VAULT_ALT_ADDRESS` | Address Lookup Table for vault NFTs (backend, devnet: `3iiRu5SejD9PyZn1tBMhH7euCkBZ1XcPiY2nLqb8ZY9M`) |
 | `VITE_POKEBALL_GAME_PROGRAM_ID` | Program ID for frontend |
 | `VITE_SOLANA_NETWORK` | Network for frontend wallet adapter (`devnet` or `mainnet-beta`) |
@@ -565,7 +594,7 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 | Wallet Provider | `src/solana/wallet.tsx` | `SolanaWalletProvider` — ConnectionProvider + WalletProvider + WalletModalProvider |
 | Program Client | `src/solana/programClient.ts` | Anchor IDL-based client, PDA derivation, `consumeRandomnessWithRetry()` with vault fetch + remaining_accounts + dual-path (legacy/versioned tx) |
 | Constants | `src/solana/constants.ts` | Ball prices, catch rates, decimals, program ID |
-| Hooks | `src/hooks/solana/` | 8 hooks for on-chain interactions |
+| Hooks | `src/hooks/solana/` | 9 hooks for on-chain interactions + transaction persistence |
 | Components | `src/components/` | Rewritten for Solana (PokeBallShop, CatchAttemptModal, etc.) |
 
 ### Solana Hooks (`src/hooks/solana/`)
@@ -579,6 +608,7 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 | `usePokemonSpawns` | Reads `PokemonSlots` PDA, returns active spawns |
 | `useSolBallsBalance` | Reads player's SolCatch token account balance |
 | `useSolanaEvents` | WebSocket event listener for Anchor program events |
+| `useTransactionLog` | Persistent transaction log per wallet via localStorage. Stores THROW/ESCAPED/CAUGHT/PURCHASED events, survives page refreshes, derives throw rows from outcome events (no double counting) |
 | `useCaughtPokemonEvents` / `useFailedCatchEvents` / `useBallPurchasedEvents` | Typed event hooks (built on `useSolanaEvents`) |
 
 ### Components Rewritten for Solana
@@ -592,7 +622,7 @@ The Phaser game engine, game entities, and UI components from the ApeChain versi
 | `CatchResultModal` | Solana Explorer links |
 | `InventoryTerminal` | Uses `usePlayerInventory` for stats display |
 | `AdminDevTools` | Reads Anchor accounts (GameConfig, PokemonSlots, NftVault) |
-| `TransactionHistory` | ApeChain-matching layout: stats bar, spending totals, card-based events (THROW/ESCAPED/CAUGHT/PURCHASED), relative timestamps, Load More pagination |
+| `TransactionHistory` | ApeChain-matching layout: stats bar, spending totals, card-based events (THROW/ESCAPED/CAUGHT/PURCHASED), relative timestamps, Load More pagination. Receives persisted events from `useTransactionLog` via props, survives page refreshes |
 | `WalletConnector` | Solana Wallet Adapter button (auto-detects Phantom, Solflare, etc.) |
 | `TradeModal` | Stubbed (OTC trading not yet on Solana) |
 | `GameCanvas` | Uses `usePokemonSpawns` hook for on-chain spawn data |
@@ -641,10 +671,21 @@ All endpoints (except `/health`) require `X-ADMIN-KEY` header.
 | `/trigger-swap` | POST | Manual swap + split pipeline |
 | `/trigger-gacha` | POST | Manual Gacha purchase + NFT deposit |
 
-### Cron Pipeline (every 5 min)
+### Cron Pipeline (every 5 min, configurable via `CRON_INTERVAL_MS`)
 
 1. **Phase 1 — Revenue**: Check game SOLCATCH balance >= threshold → `withdraw_revenue` → Jupiter swap to USDC → split (3% treasury / 96% NFT pool / 1% SOL reserve)
+   - Skipped when `SKIP_REVENUE_SWAP=true` (devnet — no SOLCATCH liquidity pool)
 2. **Phase 2 — Gacha**: Check NFT pool USDC >= pack cost AND vault not full → Gacha API `generatePack` → sign/submit → `openPack` → `deposit_nft`
+   - When `MOCK_GACHA=true`: mints test NFTs locally instead of calling external Gacha API (devnet Gacha machine is currently empty)
+
+### Devnet Mode Flags
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `SKIP_REVENUE_SWAP` | `false` | Skip Phase 1 (SOLCATCH→USDC swap) — no liquidity pool on devnet |
+| `MOCK_GACHA` | `false` | Mint test NFTs locally instead of calling external Gacha API |
+
+When both are `true`, the cron only runs Phase 2 with mock NFTs: check USDC balance → mint test NFT → deposit into vault → extend ALT. Verified working on devnet (3 auto cycles, vault 1→4 NFTs).
 
 ### Key Files
 
@@ -652,9 +693,10 @@ All endpoints (except `/health`) require `X-ADMIN-KEY` header.
 |------|---------------|
 | `solanaClient.ts` | Anchor wrapper: PDA derivation, `withdrawRevenue()`, `depositNft()`, `findNewNftsInWallet()`, `signAndSendTransaction()`, ALT management (`createVaultAlt()`, `extendVaultAlt()`, `extendAltForNewNft()`) |
 | `revenueProcessor.ts` | Jupiter quote/swap, `splitUsdcAmounts()`, `shouldRunSwap()`, full pipeline orchestration |
-| `gachaClient.ts` | Gacha API: `purchasePack()` (generate→sign→submit→open), `purchaseMultiplePacks()` |
+| `gachaClient.ts` | Gacha API: `purchasePack()` (generate→sign→submit→open), `purchaseMultiplePacks()`. Default pack type: `pokemon_50` |
+| `mockGacha.ts` | Mock Gacha for devnet: `mintMockNft()` creates SPL token (decimals=0, amount=1), `mockPurchasePacks()` mints N test NFTs |
 | `nftDepositor.ts` | Scan wallet for NFTs not in vault, deposit each via `deposit_nft` instruction, extend ALT after each deposit |
-| `config.ts` | All env vars with validation (revenue split must total 100), `VAULT_ALT_ADDRESS` |
+| `config.ts` | All env vars with validation (revenue split must total 100), `VAULT_ALT_ADDRESS`, `SKIP_REVENUE_SWAP`, `MOCK_GACHA` |
 
 ## Coding Conventions
 
