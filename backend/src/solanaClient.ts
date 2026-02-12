@@ -3,7 +3,8 @@
  * Provides typed helpers for reading state and calling instructions.
  */
 import * as anchor from "@coral-xyz/anchor";
-import { Program, BN, AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import { Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import {
   Connection,
   Keypair,

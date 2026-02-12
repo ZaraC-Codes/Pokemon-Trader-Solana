@@ -55,7 +55,7 @@ async function gachaFetch(
  */
 export async function purchasePack(
   client: SolanaClient,
-  packType: string = "pokemon50"
+  packType: string = "pokemon_50"
 ): Promise<GachaPackResult> {
   // 1. Generate pack
   console.log(`  Generating pack (type: ${packType})...`);
@@ -109,7 +109,7 @@ export async function purchasePack(
 export async function purchaseMultiplePacks(
   client: SolanaClient,
   count: number,
-  packType: string = "pokemon50"
+  packType: string = "pokemon_50"
 ): Promise<GachaPackResult[]> {
   const results: GachaPackResult[] = [];
 

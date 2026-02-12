@@ -6,6 +6,7 @@ import express from "express";
 import { SolanaClient } from "./solanaClient.js";
 import { runRevenueProcessor } from "./revenueProcessor.js";
 import { purchaseMultiplePacks } from "./gachaClient.js";
+import { mockPurchasePacks } from "./mockGacha.js";
 import { depositNewNfts } from "./nftDepositor.js";
 import {
   ADMIN_API_KEY,
@@ -15,6 +16,8 @@ import {
   PACK_COST_USDC,
   MIN_PACKS_PER_RUN,
   MAX_VAULT_SIZE,
+  SKIP_REVENUE_SWAP,
+  MOCK_GACHA,
 } from "./config.js";
 
 // ── State ──────────────────────────────────────────────────────
@@ -82,8 +85,10 @@ async function runGachaPipeline(c: SolanaClient): Promise<{
     return { packsPurchased: 0, nftsDeposited: 0 };
   }
 
-  console.log(`[Gacha] Purchasing ${packsToBuy} pack(s)...`);
-  const packs = await purchaseMultiplePacks(c, packsToBuy);
+  console.log(`[Gacha] Purchasing ${packsToBuy} pack(s)${MOCK_GACHA ? " (MOCK MODE)" : ""}...`);
+  const packs = MOCK_GACHA
+    ? await mockPurchasePacks(c, packsToBuy)
+    : await purchaseMultiplePacks(c, packsToBuy);
   lastGachaTime = new Date();
 
   // Deposit any new NFTs
@@ -112,9 +117,13 @@ async function cronTick(): Promise<void> {
     const c = getClient();
 
     // Phase 1: Revenue processing (withdraw + swap + split)
-    const revenueResult = await runRevenueProcessor(c);
-    if (revenueResult) {
-      lastSwapTime = new Date();
+    if (SKIP_REVENUE_SWAP) {
+      console.log("[Cron] SKIP_REVENUE_SWAP=true — skipping Phase 1 (no swap on devnet)");
+    } else {
+      const revenueResult = await runRevenueProcessor(c);
+      if (revenueResult) {
+        lastSwapTime = new Date();
+      }
     }
 
     // Phase 2: Gacha + deposit (runs regardless of phase 1)
@@ -216,6 +225,12 @@ app.post("/trigger-gacha", requireAuth, async (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Revenue Processor listening on port ${PORT}`);
   console.log(`Cron interval: ${CRON_INTERVAL_MS / 1000}s`);
+  if (SKIP_REVENUE_SWAP) {
+    console.log(`⚠ SKIP_REVENUE_SWAP=true — Phase 1 (swap) disabled, only Gacha+Deposit will run`);
+  }
+  if (MOCK_GACHA) {
+    console.log(`⚠ MOCK_GACHA=true — Minting test NFTs locally instead of calling Gacha API`);
+  }
 
   // Schedule cron
   setInterval(cronTick, CRON_INTERVAL_MS);

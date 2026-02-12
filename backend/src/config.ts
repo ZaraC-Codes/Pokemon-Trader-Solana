@@ -86,6 +86,16 @@ export const MAX_VAULT_SIZE = 20;
 // Address Lookup Table for vault NFTs (optional — needed if vault > 7 NFTs)
 export const VAULT_ALT_ADDRESS = process.env.VAULT_ALT_ADDRESS || "";
 
+// Devnet mode: skip the SOLCATCH→USDC swap (no liquidity pool on devnet)
+// When true, the cron only runs Phase 2 (Gacha + Deposit)
+export const SKIP_REVENUE_SWAP =
+  optionalEnv("SKIP_REVENUE_SWAP", "false").toLowerCase() === "true";
+
+// Mock Gacha mode: mint test NFTs locally instead of calling external Gacha API.
+// Use when the devnet Gacha machine is empty.
+export const MOCK_GACHA =
+  optionalEnv("MOCK_GACHA", "false").toLowerCase() === "true";
+
 // Cron interval (ms)
 export const CRON_INTERVAL_MS = Number(
   optionalEnv("CRON_INTERVAL_MS", String(5 * 60 * 1000)) // 5 minutes

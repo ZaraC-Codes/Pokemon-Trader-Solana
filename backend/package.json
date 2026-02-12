@@ -15,6 +15,7 @@
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.95.0",
+    "bn.js": "^5.2.2",
     "bs58": "^6.0.0",
     "dotenv": "^16.4.0",
     "express": "^4.21.0"
