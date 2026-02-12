@@ -49,6 +49,14 @@ interface GameCanvasProps {
    * Used after throw results (caught/missed/relocated) to avoid 5-second staleness window.
    */
   refetchSpawnsRef?: React.MutableRefObject<(() => void) | null>;
+  /**
+   * Ref callback for throw + struggle animation sequence.
+   * Called after 2nd wallet signature: plays ball throw arc, then loops struggle until VRF resolves.
+   * Returns a cleanup function to stop the struggle animation.
+   */
+  onThrowAndStruggleRef?: React.MutableRefObject<
+    ((pokemonId: bigint, ballType: BallType) => Promise<() => void>) | null
+  >;
   // Music disabled
   // onMusicToggle?: () => void;
 }
@@ -128,7 +136,7 @@ function toManagerSpawn(contract: ContractPokemonSpawn, index: number): ManagerP
   return result;
 }
 
-export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfRange, onVisualThrowRef, onCatchResultRef, refetchSpawnsRef }: GameCanvasProps) {
+export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfRange, onVisualThrowRef, onCatchResultRef, refetchSpawnsRef, onThrowAndStruggleRef }: GameCanvasProps) {
   const gameRef = useRef<Phaser.Game | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const onTradeClickRef = useRef(onTradeClick);
@@ -326,6 +334,21 @@ export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfR
           console.warn('[GameCanvas] CatchMechanicsManager not available, catch result callback disabled');
         }
       }
+
+      // Wire up throw + struggle animation callback
+      // Called after 2nd wallet signature: throw arc → struggle loop → returns cleanup
+      if (onThrowAndStruggleRef) {
+        const catchMechanicsManager = gameScene.getCatchMechanicsManager();
+        if (catchMechanicsManager) {
+          onThrowAndStruggleRef.current = (pokemonId: bigint, ballType: BallType) => {
+            console.log('[GameCanvas] Throw+struggle triggered for Pokemon:', pokemonId.toString(), 'ball:', ballType);
+            return catchMechanicsManager.playBallThrowThenStruggle(pokemonId, ballType);
+          };
+          console.log('[GameCanvas] Throw+struggle callback registered');
+        } else {
+          console.warn('[GameCanvas] CatchMechanicsManager not available, throw+struggle disabled');
+        }
+      }
     };
 
     // Try to get the scene - it may or may not be ready
@@ -357,6 +380,10 @@ export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfR
       // Clear the catch result ref
       if (onCatchResultRef) {
         onCatchResultRef.current = null;
+      }
+      // Clear the throw+struggle ref
+      if (onThrowAndStruggleRef) {
+        onThrowAndStruggleRef.current = null;
       }
       if (gameRef.current) {
         gameRef.current.destroy(true);

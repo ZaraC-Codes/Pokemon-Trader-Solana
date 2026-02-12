@@ -377,7 +377,8 @@ export async function consumeRandomnessWithRetry(
   vrfSeed: Buffer,
   playerPubkey?: PublicKey,
   timeoutMs: number = 30_000,
-  retryIntervalMs: number = 2_000
+  retryIntervalMs: number = 2_000,
+  onSigned?: () => void
 ): Promise<TransactionSignature> {
   const program = getProgram(connection, wallet);
   const [gameConfigPDA] = getGameConfigPDA();
@@ -549,6 +550,9 @@ export async function consumeRandomnessWithRetry(
   }
 
   console.log('[programClient] transaction signed, sending...');
+
+  // Notify caller that wallet signature is complete (modal can close, animation can start)
+  onSigned?.();
 
   // ---- Send the signed tx with retries (no more popups) ----
   const start = Date.now();

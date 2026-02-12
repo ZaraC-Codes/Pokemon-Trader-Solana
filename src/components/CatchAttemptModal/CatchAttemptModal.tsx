@@ -5,12 +5,13 @@
  * Displays available balls, catch rates, and handles the on-chain throw flow.
  *
  * Solana version: Direct transactions via Anchor program (~$0.001 fee).
- * VRF result is awaited via useThrowBall's lastResult lifecycle.
+ * The useThrowBall hook is LIFTED to App.tsx — this modal receives hook values as props.
+ * After the 2nd wallet signature (consume_randomness), App.tsx closes this modal
+ * and starts the throw+struggle animation on the map.
  */
 
 import React, { useCallback, useEffect } from 'react';
 import {
-  useThrowBall,
   usePlayerInventory,
   getBallTypeName,
   getCatchRatePercent,
@@ -18,7 +19,6 @@ import {
   SOLBALLS_DECIMALS,
   type BallType,
   type ThrowStatus,
-  type ThrowResult,
 } from '../../hooks/solana';
 
 // ============================================================
@@ -32,8 +32,13 @@ export interface CatchAttemptModalProps {
   pokemonId: bigint;
   slotIndex: number;
   attemptsRemaining: number;
-  onVisualThrow?: (pokemonId: bigint, ballType: BallType) => void;
-  onResult?: (result: ThrowResult) => void;
+  // Throw hook values (lifted from App.tsx)
+  throwBallFn?: (slotIndex: number, ballType: BallType) => Promise<boolean>;
+  throwStatus: ThrowStatus;
+  isLoading: boolean;
+  error: Error | undefined;
+  resetThrow: () => void;
+  txSignature: string | undefined;
 }
 
 // ============================================================
@@ -42,11 +47,13 @@ export interface CatchAttemptModalProps {
 
 const THROW_STATUS_MESSAGES: Record<ThrowStatus, string> = {
   idle: '',
-  sending: 'Sending transaction…',
-  confirming: 'Waiting for confirmation…',
-  waiting_vrf: 'Waiting for catch result…',
+  sending: 'Sending transaction\u2026',
+  confirming: 'Waiting for confirmation\u2026',
+  waiting_vrf: 'Approving catch resolution\u2026',
+  animating: '',  // Modal is closing, animation on map
   caught: 'Caught!',
   missed: 'Missed!',
+  relocated: 'Relocated!',
   error: '',
 };
 
@@ -82,7 +89,7 @@ function getFriendlyErrorMessage(rawError: string | null): string {
     return 'Network busy. Please try again in a moment.';
   }
   if (errorLower.includes('vrf timeout')) {
-    return 'Catch result timed out. It may still process on-chain — check back soon.';
+    return 'Catch result timed out. It may still process on-chain \u2014 check back soon.';
   }
   return 'Something went wrong. Please try again.';
 }
@@ -228,8 +235,8 @@ function BallOption({ ballType, ownedCount, onThrow, isDisabled, isThrowInProgre
 
   const getButtonLabel = () => {
     if (!hasBalls) return 'None';
-    if (isThrowingThis) return (<><InlineSpinner />Throwing…</>);
-    if (isThrowInProgress) return 'Wait…';
+    if (isThrowingThis) return (<><InlineSpinner />Throwing&hellip;</>);
+    if (isThrowInProgress) return 'Wait\u2026';
     return 'Throw';
   };
 
@@ -267,20 +274,15 @@ export function CatchAttemptModal({
   pokemonId,
   slotIndex,
   attemptsRemaining,
-  onVisualThrow,
-  onResult,
+  // Throw hook values from App.tsx
+  throwBallFn,
+  throwStatus,
+  isLoading,
+  error,
+  resetThrow,
+  txSignature,
 }: CatchAttemptModalProps) {
   const [throwingBallType, setThrowingBallType] = React.useState<BallType | null>(null);
-
-  const {
-    throwBall: throwBallFn,
-    throwStatus,
-    isLoading,
-    error,
-    reset,
-    txSignature,
-    lastResult,
-  } = useThrowBall();
 
   const inventory = usePlayerInventory();
 
@@ -301,39 +303,18 @@ export function CatchAttemptModal({
     inventory.pokeBalls > 0 || inventory.greatBalls > 0 ||
     inventory.ultraBalls > 0 || inventory.masterBalls > 0;
 
-  const isThrowInProgress = throwStatus !== 'idle' && throwStatus !== 'error' && throwStatus !== 'caught' && throwStatus !== 'missed';
+  // Modal shows throw-in-progress for sending/confirming/waiting_vrf states.
+  // 'animating' means wallet signed — App.tsx will close us momentarily.
+  const isThrowInProgress = throwStatus !== 'idle' && throwStatus !== 'error'
+    && throwStatus !== 'caught' && throwStatus !== 'missed' && throwStatus !== 'relocated';
   const statusMessage = THROW_STATUS_MESSAGES[throwStatus] || '';
-
-  // ---- When lastResult arrives, fire callbacks and close for ANY terminal result ----
-  useEffect(() => {
-    if (!lastResult) return;
-
-    console.log('[CatchAttemptModal] lastResult received:', lastResult.status, lastResult);
-
-    // Trigger visual throw animation for caught/missed (not error)
-    if ((lastResult.status === 'caught' || lastResult.status === 'missed') && onVisualThrow && throwingBallType !== null) {
-      onVisualThrow(pokemonId, throwingBallType);
-    }
-
-    // Bubble result to parent (for all statuses including error)
-    if (onResult) {
-      onResult(lastResult);
-    }
-
-    // Close this modal for ANY terminal status — caught, missed, or error.
-    // The parent handles showing CatchWin/CatchResult/error modals.
-    onClose();
-
-    // Reset hook for next throw
-    reset();
-  }, [lastResult]); // Minimal deps — we only want this to fire when lastResult changes
 
   const handleThrow = useCallback(
     async (ballType: BallType) => {
       console.log('[CatchAttemptModal] handleThrow called:', { ballType, slotIndex, pokemonId: pokemonId.toString() });
 
       if (!throwBallFn) {
-        console.warn('[CatchAttemptModal] throwBallFn is undefined — wallet not connected?');
+        console.warn('[CatchAttemptModal] throwBallFn is undefined \u2014 wallet not connected?');
         return;
       }
 
@@ -357,7 +338,7 @@ export function CatchAttemptModal({
         if (!success) {
           setThrowingBallType(null);
         }
-        // On success, we stay open and wait for VRF result via lastResult
+        // On success, App.tsx will close us when throwStatus transitions to 'animating'
       } catch (err) {
         console.error('[CatchAttemptModal] throwBall error:', err);
         setThrowingBallType(null);
@@ -367,16 +348,16 @@ export function CatchAttemptModal({
   );
 
   const handleDismissError = useCallback(() => {
-    reset();
+    resetThrow();
     setThrowingBallType(null);
-  }, [reset]);
+  }, [resetThrow]);
 
+  // Reset local state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      reset();
       setThrowingBallType(null);
     }
-  }, [isOpen, reset]);
+  }, [isOpen]);
 
   const getAttemptsColor = () => {
     if (attemptsRemaining >= 3) return styles.attemptsHigh;
@@ -419,10 +400,10 @@ export function CatchAttemptModal({
             <div style={styles.loadingText}>{statusMessage}</div>
             <div style={styles.loadingSubtext}>
               {throwStatus === 'sending'
-                ? 'Please approve the transaction in your wallet…'
+                ? 'Please approve the transaction in your wallet\u2026'
                 : throwStatus === 'waiting_vrf'
-                ? 'VRF randomness is being resolved on-chain…'
-                : 'This may take a few seconds…'}
+                ? 'Please approve the catch resolution transaction\u2026'
+                : 'This may take a few seconds\u2026'}
             </div>
           </div>
         )}
@@ -469,21 +450,21 @@ export function CatchAttemptModal({
         {/* No attempts warning — informational only, on-chain program is the source of truth */}
         {attemptsRemaining <= 0 && (
           <div style={styles.errorBox}>
-            <span style={styles.errorText}>Attempts may have been reset — try throwing!</span>
+            <span style={styles.errorText}>Attempts may have been reset &mdash; try throwing!</span>
           </div>
         )}
 
         {/* Footer */}
         <div style={styles.footer}>
           <div style={{ color: '#888', marginBottom: '6px' }}>
-            Slot #{slotIndex} • Higher tier balls = better catch rates
+            Slot #{slotIndex} &bull; Higher tier balls = better catch rates
           </div>
           <div style={{ color: '#00ff88', fontSize: '11px' }}>
             Transactions cost ~0.001 SOL. You pay when buying balls + throwing.
           </div>
           {txSignature && (
             <div style={{ marginTop: '6px', color: '#666', fontSize: '10px' }}>
-              TX: {txSignature.slice(0, 10)}…{txSignature.slice(-6)}
+              TX: {txSignature.slice(0, 10)}&hellip;{txSignature.slice(-6)}
             </div>
           )}
         </div>

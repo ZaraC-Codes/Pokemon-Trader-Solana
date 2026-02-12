@@ -137,6 +137,12 @@ export class CatchMechanicsManager {
   private throwBallSprite?: Phaser.GameObjects.Arc;
   private effectsContainer?: Phaser.GameObjects.Container;
 
+  // Struggle animation objects (for VRF wait loop)
+  private struggleSprite?: Phaser.GameObjects.Arc;
+  private struggleTween?: Phaser.Tweens.Tween;
+  private struggleTimer?: Phaser.Time.TimerEvent;
+  private struggleExclamations: Phaser.GameObjects.Text[] = [];
+
   constructor(scene: GameScene, spawnManager: PokemonSpawnManager) {
     this.scene = scene;
     this.spawnManager = spawnManager;
@@ -980,6 +986,143 @@ export class CatchMechanicsManager {
   }
 
   // ============================================================
+  // STRUGGLE ANIMATION METHODS (VRF wait loop)
+  // ============================================================
+
+  /**
+   * Play a looping struggle/wobble animation at a position.
+   * Creates a ball sprite that rocks back and forth with periodic "!" exclamation marks.
+   * Returns a cleanup function to stop the animation.
+   *
+   * @param x - X position for the struggle animation
+   * @param y - Y position for the struggle animation
+   * @param ballType - Ball type for color
+   * @returns Cleanup function that stops the animation
+   */
+  playStruggleAnimation(x: number, y: number, ballType: BallType): () => void {
+    // Clean up any existing struggle first
+    this.cleanupStruggle();
+
+    console.log(`[CatchMechanicsManager] playStruggleAnimation at (${x}, ${y}) ball type ${ballType}`);
+
+    // Create ball sprite at target position
+    const ballColor = CATCH_CONFIG.BALL_COLORS[ballType];
+    this.struggleSprite = this.scene.add.circle(x, y, 7, ballColor);
+    this.struggleSprite.setDepth(100);
+    this.struggleSprite.setStrokeStyle(2, 0xffffff);
+
+    // Add a horizontal white line across the middle (pokeball style)
+    // We'll simulate this with a second smaller element
+    const ballLine = this.scene.add.rectangle(x, y, 12, 2, 0xffffff);
+    ballLine.setDepth(101);
+
+    // Create wobble tween — rocks left/right with pauses
+    this.struggleTween = this.scene.tweens.add({
+      targets: [this.struggleSprite, ballLine],
+      angle: { from: -15, to: 15 },
+      x: { from: x - 3, to: x + 3 },
+      duration: 200,
+      yoyo: true,
+      repeat: -1,   // Infinite loop
+      ease: 'Sine.easeInOut',
+      repeatDelay: 300,  // Pause between wobbles
+    });
+
+    // Periodic "!" exclamation marks
+    this.struggleTimer = this.scene.time.addEvent({
+      delay: 1200,
+      loop: true,
+      callback: () => {
+        if (!this.struggleSprite) return;
+
+        const excl = this.scene.add.text(x, y - 20, '!', {
+          fontSize: '14px',
+          fontFamily: 'Courier New, monospace',
+          color: '#ffcc00',
+          stroke: '#000000',
+          strokeThickness: 3,
+          fontStyle: 'bold',
+        });
+        excl.setOrigin(0.5);
+        excl.setDepth(102);
+        this.struggleExclamations.push(excl);
+
+        // Float up and fade out
+        this.scene.tweens.add({
+          targets: excl,
+          y: y - 40,
+          alpha: { from: 1, to: 0 },
+          duration: 600,
+          ease: 'Quad.easeOut',
+          onComplete: () => {
+            excl.destroy();
+            const idx = this.struggleExclamations.indexOf(excl);
+            if (idx >= 0) this.struggleExclamations.splice(idx, 1);
+          },
+        });
+      },
+    });
+
+    // Store ballLine for cleanup
+    const cleanup = () => {
+      ballLine.destroy();
+      this.cleanupStruggle();
+    };
+
+    return cleanup;
+  }
+
+  /**
+   * Play ball throw animation to a Pokemon, then start struggle animation.
+   * Convenience method: throw arc → land → start wobble loop.
+   *
+   * @param pokemonId - Target Pokemon ID
+   * @param ballType - Ball type for color
+   * @returns Promise resolving to a cleanup function that stops the struggle
+   */
+  async playBallThrowThenStruggle(pokemonId: bigint, ballType: BallType): Promise<() => void> {
+    const spawn = this.spawnManager.getSpawnById(pokemonId);
+    if (!spawn) {
+      console.warn(`[CatchMechanicsManager] playBallThrowThenStruggle: Pokemon ${pokemonId.toString()} not found`);
+      return () => {};
+    }
+
+    // Play the throw arc animation first
+    await this.playBallThrow(spawn.x, spawn.y, ballType);
+
+    // Now start the struggle animation at the target
+    const cleanup = this.playStruggleAnimation(spawn.x, spawn.y, ballType);
+
+    console.log(`[CatchMechanicsManager] throw complete, struggle started for Pokemon ${pokemonId.toString()}`);
+    return cleanup;
+  }
+
+  /**
+   * Stop and clean up any active struggle animation.
+   * Called when VRF result arrives or on cancel.
+   */
+  cleanupStruggle(): void {
+    if (this.struggleTween) {
+      this.struggleTween.stop();
+      this.struggleTween.destroy();
+      this.struggleTween = undefined;
+    }
+    if (this.struggleTimer) {
+      this.struggleTimer.destroy();
+      this.struggleTimer = undefined;
+    }
+    if (this.struggleSprite) {
+      this.struggleSprite.destroy();
+      this.struggleSprite = undefined;
+    }
+    // Clean up any remaining exclamation marks
+    for (const excl of this.struggleExclamations) {
+      excl.destroy();
+    }
+    this.struggleExclamations = [];
+  }
+
+  // ============================================================
   // CLEANUP METHODS
   // ============================================================
 
@@ -1012,6 +1155,7 @@ export class CatchMechanicsManager {
 
     this.cleanupThrowSprite();
     this.cleanupEffects();
+    this.cleanupStruggle();
 
     // If we decremented a ball but didn't complete, we should restore it
     // This is handled by the contract layer - local state will sync on next read
@@ -1024,6 +1168,7 @@ export class CatchMechanicsManager {
    */
   destroy(): void {
     this.cancel();
+    this.cleanupStruggle();
     this.ballSelectionHandler = undefined;
     this.contractThrowHandler = undefined;
     this.stateChangeHandler = undefined;

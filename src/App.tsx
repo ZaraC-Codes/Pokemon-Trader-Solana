@@ -16,6 +16,7 @@ import {
   useCaughtPokemonEvents,
   useFailedCatchEvents,
   useBallPurchasedEvents,
+  useThrowBall,
   type BallType,
   type ThrowResult,
 } from './hooks/solana';
@@ -66,7 +67,7 @@ function AppContent() {
   const processedCatchEventsRef = useRef<Set<string>>(new Set());
   const processedFailEventsRef = useRef<Set<string>>(new Set());
   const processedPurchaseEventsRef = useRef<Set<string>>(new Set());
-  // Track slots already resolved via handleThrowResult to avoid duplicate processing
+  // Track slots already resolved via lastResult effect to avoid duplicate processing
   const resolvedByCatchModalRef = useRef<Set<string>>(new Set());
 
   // Ref for triggering visual throw animation in Phaser
@@ -77,6 +78,27 @@ function AppContent() {
 
   // Ref for triggering immediate spawn data refetch after throw results
   const refetchSpawnsRef = useRef<(() => void) | null>(null);
+
+  // Ref for throw + struggle animation (ball arc → wobble loop until VRF resolves)
+  const throwAndStruggleRef = useRef<
+    ((pokemonId: bigint, ballType: BallType) => Promise<() => void>) | null
+  >(null);
+
+  // ---- useThrowBall hook (LIFTED from CatchAttemptModal so it survives modal close) ----
+  const {
+    throwBall: throwBallFn,
+    throwStatus,
+    isLoading: throwIsLoading,
+    error: throwError,
+    reset: resetThrow,
+    txSignature: throwTxSignature,
+    lastResult,
+  } = useThrowBall();
+
+  // Track which Pokemon + ball type we're throwing at (for animation after modal closes)
+  const throwingInfoRef = useRef<{ pokemonId: bigint; ballType: BallType } | null>(null);
+  // Cleanup function for the active struggle animation
+  const stopStruggleRef = useRef<(() => void) | null>(null);
 
   // Toast management
   const addToast = useCallback((message: string, type: ToastMessage['type'] = 'warning') => {
@@ -270,6 +292,12 @@ function AppContent() {
   }, []);
 
   const handlePokemonClick = useCallback((data: PokemonClickData) => {
+    // Don't open modal if a throw is already in flight (animating/waiting_vrf)
+    if (throwStatus !== 'idle' && throwStatus !== 'error' && throwStatus !== 'caught' && throwStatus !== 'missed' && throwStatus !== 'relocated') {
+      console.log('[App] Ignoring Pokemon click — throw in flight (status:', throwStatus, ')');
+      return;
+    }
+
     // Don't block based on attemptCount — the on-chain program is the single source of truth
     // for max attempts (throw_ball checks throw_attempts < MAX_THROW_ATTEMPTS).
     // Frontend attemptCount can be stale (5s poll) after a relocation resets attempts to 0.
@@ -279,7 +307,7 @@ function AppContent() {
       slotIndex: data.slotIndex,
       attemptsRemaining: remaining,
     });
-  }, []);
+  }, [throwStatus]);
 
   const lastOutOfRangeAtRef = useRef<number>(0);
 
@@ -292,7 +320,12 @@ function AppContent() {
 
   const handleCloseCatchModal = useCallback(() => {
     setSelectedPokemon(null);
-  }, []);
+    // Only reset the throw hook if nothing is in flight
+    // (if animating or waiting for VRF, don't kill the polling)
+    if (throwStatus === 'idle' || throwStatus === 'error') {
+      resetThrow();
+    }
+  }, [throwStatus, resetThrow]);
 
   const handleCloseWinModal = useCallback(() => {
     setCatchWin(null);
@@ -309,87 +342,119 @@ function AppContent() {
     }
   }, [catchFailure, addToast]);
 
-  const handleVisualThrow = useCallback((pokemonId: bigint, ballType: BallType) => {
-    if (visualThrowRef.current) {
-      visualThrowRef.current(pokemonId, ballType);
-    }
-  }, []);
-
-  // Handle ThrowResult from CatchAttemptModal (via useThrowBall's VRF event resolution)
-  const handleThrowResult = useCallback((result: ThrowResult) => {
-    console.log('[App] ThrowResult from CatchAttemptModal:', result);
-
-    // Mark this slot as resolved by the modal so the event-based useEffects don't double-process
-    if (result.slotIndex !== undefined) {
-      resolvedByCatchModalRef.current.add(`${result.status}-${result.slotIndex}`);
-    }
-
-    if (result.status === 'caught' && result.pokemonId !== undefined) {
-      // Notify Phaser
-      if (catchResultRef.current) {
-        catchResultRef.current(true, result.pokemonId);
+  // ---- Wrapped throwBall that records pokemonId + ballType for animation ----
+  const wrappedThrowBall = useCallback(
+    async (slotIndex: number, ballType: BallType) => {
+      // Record what we're throwing at, for animation later
+      if (selectedPokemon) {
+        throwingInfoRef.current = {
+          pokemonId: selectedPokemon.pokemonId,
+          ballType,
+        };
       }
+      return throwBallFn ? throwBallFn(slotIndex, ballType) : false;
+    },
+    [throwBallFn, selectedPokemon]
+  );
+
+  // ---- Effect: throwStatus === 'animating' → close modal + start animation ----
+  // 'animating' fires after the 2nd wallet signature (consume_randomness signed).
+  // The modal closes and the throw+struggle animation starts on the Phaser map.
+  useEffect(() => {
+    if (throwStatus !== 'animating') return;
+    if (!throwingInfoRef.current) return;
+
+    const { pokemonId, ballType } = throwingInfoRef.current;
+    console.log('[App] throwStatus=animating → closing modal, starting throw+struggle for Pokemon', pokemonId.toString());
+
+    // Close the CatchAttemptModal
+    setSelectedPokemon(null);
+
+    // Start throw + struggle animation on the map
+    if (throwAndStruggleRef.current) {
+      throwAndStruggleRef.current(pokemonId, ballType).then((cleanup) => {
+        stopStruggleRef.current = cleanup;
+      });
+    }
+  }, [throwStatus]);
+
+  // ---- Effect: lastResult arrives → stop struggle + show result modal ----
+  // When VRF resolves, useThrowBall sets lastResult. We stop the struggle animation
+  // and show the appropriate result modal (caught/missed/relocated/error).
+  useEffect(() => {
+    if (!lastResult) return;
+
+    console.log('[App] lastResult received:', lastResult.status, lastResult);
+
+    // Stop struggle animation
+    if (stopStruggleRef.current) {
+      stopStruggleRef.current();
+      stopStruggleRef.current = null;
+    }
+
+    // Mark this slot as resolved so WebSocket event handlers don't double-process
+    if (lastResult.slotIndex !== undefined) {
+      resolvedByCatchModalRef.current.add(`${lastResult.status}-${lastResult.slotIndex}`);
+    }
+
+    if (lastResult.status === 'caught' && lastResult.pokemonId !== undefined) {
+      // Notify Phaser of catch success (sparkle animation)
+      catchResultRef.current?.(true, lastResult.pokemonId);
 
       setSelectedPokemon(null);
 
-      const nftMint = result.nftMint;
+      const nftMint = lastResult.nftMint;
       const hasNFT = nftMint && nftMint !== '11111111111111111111111111111111';
 
       if (hasNFT) {
         setCatchWin({
           tokenId: BigInt(0),
-          pokemonId: result.pokemonId,
-          txSignature: result.txSignature,
+          pokemonId: lastResult.pokemonId,
+          txSignature: lastResult.txSignature,
         });
         addToast('You caught a Pokemon and won an NFT!', 'success');
       } else {
-        addToast('Pokemon caught! But the NFT vault was empty — no NFT awarded this time.', 'warning');
+        addToast('Pokemon caught! But the NFT vault was empty \u2014 no NFT awarded this time.', 'warning');
       }
-    } else if (result.status === 'relocated' && result.pokemonId !== undefined) {
-      // Pokemon relocated after 3rd miss — ApeChain parity: new position, attempts reset
-      if (catchResultRef.current) {
-        catchResultRef.current(false, result.pokemonId);
-      }
-
+    } else if (lastResult.status === 'relocated' && lastResult.pokemonId !== undefined) {
+      // Pokemon relocated after 3rd miss
+      catchResultRef.current?.(false, lastResult.pokemonId);
       setSelectedPokemon(null);
 
       setCatchFailure({
         type: 'failure',
-        pokemonId: result.pokemonId,
+        pokemonId: lastResult.pokemonId,
         attemptsRemaining: 3,
         relocated: true,
       });
-    } else if (result.status === 'missed' && result.pokemonId !== undefined) {
-      if (catchResultRef.current) {
-        catchResultRef.current(false, result.pokemonId);
-      }
-
+    } else if (lastResult.status === 'missed' && lastResult.pokemonId !== undefined) {
+      catchResultRef.current?.(false, lastResult.pokemonId);
       setSelectedPokemon(null);
 
       setCatchFailure({
         type: 'failure',
-        pokemonId: result.pokemonId,
-        attemptsRemaining: result.attemptsRemaining ?? 0,
+        pokemonId: lastResult.pokemonId,
+        attemptsRemaining: lastResult.attemptsRemaining ?? 0,
       });
-    } else if (result.status === 'error') {
-      // Throw flow errored (e.g., consume_randomness failed, user cancelled, network issue).
-      // Clean up selected pokemon so modal can be reopened.
+    } else if (lastResult.status === 'error') {
       setSelectedPokemon(null);
 
-      const errMsg = result.errorMessage || 'Throw failed. Please try again.';
+      const errMsg = lastResult.errorMessage || 'Throw failed. Please try again.';
       addToast(errMsg, 'warning');
       console.error('[App] ThrowResult error:', errMsg);
     }
 
     // After any throw result (caught/missed/relocated), immediately refetch on-chain spawn data
-    // so PokemonSpawnManager has up-to-date throw_attempts (avoids 5-second staleness window).
-    if (result.status !== 'error') {
-      // Small delay to let the on-chain state finalize after tx confirmation
+    if (lastResult.status !== 'error') {
       setTimeout(() => {
         refetchSpawnsRef.current?.();
       }, 500);
     }
-  }, [addToast]);
+
+    // Clean up throw tracking state and reset the hook for next throw
+    throwingInfoRef.current = null;
+    resetThrow();
+  }, [lastResult]); // Minimal deps — only fire when lastResult changes
 
   const handleShowHelp = useCallback(() => {
     setShowHelp(true);
@@ -419,6 +484,7 @@ function AppContent() {
         onVisualThrowRef={visualThrowRef}
         onCatchResultRef={catchResultRef}
         refetchSpawnsRef={refetchSpawnsRef}
+        onThrowAndStruggleRef={throwAndStruggleRef}
       />
       <GameHUD playerAddress={account} onShowHelp={handleShowHelp} />
 
@@ -474,8 +540,12 @@ function AppContent() {
         pokemonId={selectedPokemon?.pokemonId ?? BigInt(0)}
         slotIndex={selectedPokemon?.slotIndex ?? 0}
         attemptsRemaining={selectedPokemon?.attemptsRemaining ?? 0}
-        onVisualThrow={handleVisualThrow}
-        onResult={handleThrowResult}
+        throwBallFn={wrappedThrowBall}
+        throwStatus={throwStatus}
+        isLoading={throwIsLoading}
+        error={throwError}
+        resetThrow={resetThrow}
+        txSignature={throwTxSignature}
       />
 
       {/* Catch Win Modal */}

@@ -28,7 +28,7 @@ import type { BallType } from '../../solana/constants';
 // TYPE DEFINITIONS
 // ============================================================
 
-export type ThrowStatus = 'idle' | 'sending' | 'confirming' | 'waiting_vrf' | 'caught' | 'missed' | 'relocated' | 'error';
+export type ThrowStatus = 'idle' | 'sending' | 'confirming' | 'waiting_vrf' | 'animating' | 'caught' | 'missed' | 'relocated' | 'error';
 
 export interface ThrowResult {
   status: 'caught' | 'missed' | 'relocated' | 'error';
@@ -258,6 +258,16 @@ export function useThrowBall(): UseThrowBallReturn {
         // ---- Step 2+3: Poll VRF + send consume_randomness (retry loop) ----
         // Tries to call consume_randomness; retries on VrfNotFulfilled until VRF is ready.
         console.log('[useThrowBall] calling consumeRandomnessWithRetry...');
+
+        // onSigned fires after wallet signs consume_randomness tx (2nd popup done)
+        // This transitions to 'animating' — App.tsx uses this to close modal + start animation.
+        const onSigned = () => {
+          if (!cancelledRef.current) {
+            console.log('[useThrowBall] consume_randomness signed, transitioning to animating');
+            setThrowStatus('animating');
+          }
+        };
+
         const consumeTx = await consumeRandomnessWithRetry(
           connection,
           anchorWallet,
@@ -265,7 +275,8 @@ export function useThrowBall(): UseThrowBallReturn {
           throwResult.vrfSeed,
           playerKey,
           VRF_POLL_TIMEOUT_MS,
-          VRF_POLL_INTERVAL_MS
+          VRF_POLL_INTERVAL_MS,
+          onSigned
         );
 
         if (cancelledRef.current) return false;
