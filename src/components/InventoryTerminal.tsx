@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useActiveWeb3React } from '../hooks/useActiveWeb3React';
-import { usePlayerInventory, getBallTypeName, type BallType } from '../hooks/solana';
+import { usePlayerInventory, usePlayerNFTs, getBallTypeName, type BallType } from '../hooks/solana';
 
 // Ball colors for visual display
 const BALL_COLORS: Record<BallType, string> = {
@@ -28,6 +28,7 @@ interface InventoryTerminalProps {
 export default function InventoryTerminal({ isOpen, onClose }: InventoryTerminalProps) {
   const { account } = useActiveWeb3React();
   const inventory = usePlayerInventory();
+  const { nfts, isLoading: nftsLoading } = usePlayerNFTs();
 
   if (!isOpen) return null;
 
@@ -139,23 +140,68 @@ export default function InventoryTerminal({ isOpen, onClose }: InventoryTerminal
               </div>
             </div>
 
-            {/* NFT Section - Placeholder */}
-            <div style={{ padding: '15px', backgroundColor: '#0a0a0a', border: '2px solid #444' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '18px', color: '#888' }}>NFT COLLECTION</h3>
-              <div style={{ textAlign: 'center', padding: '20px', color: '#666', fontSize: '13px' }}>
-                NFT display coming soon.
-                <br />
-                <span style={{ fontSize: '11px' }}>
-                  View your NFTs on{' '}
-                  <a
-                    href={`https://explorer.solana.com/address/${account}?cluster=devnet`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: '#4488ff', textDecoration: 'none' }}
-                  >
-                    Solana Explorer
-                  </a>
-                </span>
+            {/* NFT Collection */}
+            <div style={{ padding: '15px', backgroundColor: '#0a0a0a', border: '2px solid #00ff00' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '18px' }}>
+                NFT COLLECTION {nfts.length > 0 && <span style={{ color: '#ffcc00' }}>({nfts.length})</span>}
+              </h3>
+              {nftsLoading ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#888', fontSize: '13px' }}>
+                  Loading NFTs...
+                </div>
+              ) : nfts.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#666', fontSize: '13px' }}>
+                  No NFTs yet. Catch a Pokemon to win one!
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {nfts.map((nft) => (
+                    <div
+                      key={nft.mint}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '10px', backgroundColor: '#1a1a1a', border: '1px solid #333',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '24px', height: '24px', borderRadius: '4px',
+                          backgroundColor: '#ffcc00', border: '2px solid #fff',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '12px', fontWeight: 'bold', color: '#000',
+                        }}>
+                          N
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '13px', color: '#fff', fontFamily: 'monospace' }}>
+                            {nft.mint.slice(0, 6)}...{nft.mint.slice(-4)}
+                          </div>
+                          {nft.fromGame && (
+                            <div style={{ fontSize: '10px', color: '#00ff88' }}>Catch Reward</div>
+                          )}
+                        </div>
+                      </div>
+                      <a
+                        href={`https://explorer.solana.com/address/${nft.mint}?cluster=devnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#4488ff', textDecoration: 'none', fontSize: '11px' }}
+                      >
+                        View
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: '8px', textAlign: 'right', fontSize: '11px' }}>
+                <a
+                  href={`https://explorer.solana.com/address/${account}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#4488ff', textDecoration: 'none' }}
+                >
+                  View all on Explorer
+                </a>
               </div>
             </div>
           </>

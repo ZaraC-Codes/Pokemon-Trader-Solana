@@ -56,6 +56,13 @@ export {
   type ThrowResult,
 } from './useThrowBall';
 
+// Player NFTs
+export {
+  usePlayerNFTs,
+  type PlayerNFT,
+  type UsePlayerNFTsReturn,
+} from './usePlayerNFTs';
+
 // ============================================================
 // EVENTS
 // ============================================================

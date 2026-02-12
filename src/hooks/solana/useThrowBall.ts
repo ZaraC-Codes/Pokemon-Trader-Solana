@@ -160,7 +160,7 @@ async function parseConsumeResult(
 // VRF POLLING CONFIG
 // ============================================================
 
-const VRF_POLL_TIMEOUT_MS = 30_000; // 30 seconds for VRF fulfillment
+const VRF_POLL_TIMEOUT_MS = 45_000; // 45 seconds for VRF fulfillment (devnet can be slow)
 const VRF_POLL_INTERVAL_MS = 1_500; // Poll every 1.5 seconds
 
 // ============================================================
@@ -311,7 +311,7 @@ export function useThrowBall(): UseThrowBallReturn {
         } else if (msg.includes('VrfAlreadyFulfilled')) {
           friendlyError = new Error('This throw was already resolved. Refresh and try again.');
         } else if (msg.includes('VRF fulfillment timeout')) {
-          friendlyError = new Error('VRF timeout — catch result not received. It may still process on-chain.');
+          friendlyError = new Error('Still waiting for randomness — your throw will finalize shortly. Refresh to see the result.');
         } else if (msg.includes('User rejected') || msg.includes('rejected the request')) {
           friendlyError = new Error('Transaction cancelled');
         } else if (msg.includes('Insufficient SOL') || msg.includes('insufficient lamports') || msg.includes('insufficient funds')) {
