@@ -387,11 +387,13 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
 
   const { events: persistedEvents, appendEvents, clearLog } = useTransactionLog(playerAddress);
 
-  // Subscribe to WebSocket events and pipe into persisted log
-  // ThrowAttempted creates a 'throw' row (ball used, pokemon targeted).
-  // CaughtPokemon / FailedCatch create 'caught' / 'escaped' rows (outcome).
-  // The Throws *counter* in the stats bar is derived from caught + escaped
-  // (not from 'throw' rows), so each attempt counts exactly once.
+  // Subscribe to WebSocket events and pipe into persisted log.
+  //
+  // THROW COUNTING: Only outcome events (CaughtPokemon / FailedCatch) trigger
+  // log entries. Each outcome creates a paired THROW row + CAUGHT/ESCAPED row.
+  // ThrowAttempted events (from the first wallet popup) are kept in memory only
+  // as a lookup table for ball type info — they are NOT persisted directly.
+  // This guarantees exactly 1 THROW + 1 outcome per attempt.
   const { events: purchaseEvents } = useBallPurchasedEvents();
   const { events: throwEvents } = useThrowAttemptedEvents();
   const { events: caughtEvents } = useCaughtPokemonEvents();
@@ -400,10 +402,25 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
   // Track how many events we've already processed to avoid re-processing
   const processedCountRef = useRef({
     purchases: 0,
-    throws: 0,
     caught: 0,
     failed: 0,
   });
+
+  // Helper: find the matching ThrowAttempted event for ball type info.
+  // Matches on pokemonId + slotIndex (the throw that targeted this Pokemon).
+  // Returns the most recent match (last in array = latest).
+  const findThrowInfo = (pokemonId: string, slotIndex: number) => {
+    for (let i = throwEvents.length - 1; i >= 0; i--) {
+      const t = throwEvents[i];
+      if (
+        t.args.pokemonId.toString() === pokemonId &&
+        t.args.slotIndex === slotIndex
+      ) {
+        return { ballType: t.args.ballType, ballName: BALL_NAMES_MAP[t.args.ballType] || 'Ball' };
+      }
+    }
+    return null;
+  };
 
   // Pipe new purchase events into persisted log
   useEffect(() => {
@@ -430,32 +447,7 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
     if (newEvents.length > 0) appendEvents(newEvents);
   }, [purchaseEvents, playerAddress, appendEvents]);
 
-  // Pipe new throw events (shows which ball was used against which Pokemon)
-  useEffect(() => {
-    if (!playerAddress) return;
-    const prev = processedCountRef.current.throws;
-    if (throwEvents.length <= prev) return;
-
-    const newEvents: PersistedGameEvent[] = [];
-    for (let i = prev; i < throwEvents.length; i++) {
-      const ev = throwEvents[i];
-      if (ev.args.thrower !== playerAddress) continue;
-      newEvents.push({
-        key: ev.eventKey,
-        type: 'throw',
-        timestamp: ev.receivedAt,
-        slot: ev.slot,
-        pokemonId: ev.args.pokemonId.toString(),
-        slotIndex: ev.args.slotIndex,
-        ballType: ev.args.ballType,
-        ballName: BALL_NAMES_MAP[ev.args.ballType] || 'Ball',
-      });
-    }
-    processedCountRef.current.throws = throwEvents.length;
-    if (newEvents.length > 0) appendEvents(newEvents);
-  }, [throwEvents, playerAddress, appendEvents]);
-
-  // Pipe new caught events
+  // Pipe new caught events — also creates a paired THROW row
   useEffect(() => {
     if (!playerAddress) return;
     const prev = processedCountRef.current.caught;
@@ -465,21 +457,37 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
     for (let i = prev; i < caughtEvents.length; i++) {
       const ev = caughtEvents[i];
       if (ev.args.catcher !== playerAddress) continue;
+      const pokemonId = ev.args.pokemonId.toString();
+      const throwInfo = findThrowInfo(pokemonId, ev.args.slotIndex);
+
+      // THROW row (paired with this outcome)
+      newEvents.push({
+        key: `${ev.eventKey}-throw`,
+        type: 'throw',
+        timestamp: ev.receivedAt - 1, // sort just before outcome
+        slot: ev.slot,
+        pokemonId,
+        slotIndex: ev.args.slotIndex,
+        ballType: throwInfo?.ballType,
+        ballName: throwInfo?.ballName,
+      });
+
+      // CAUGHT row
       newEvents.push({
         key: ev.eventKey,
         type: 'caught',
         timestamp: ev.receivedAt,
         slot: ev.slot,
-        pokemonId: ev.args.pokemonId.toString(),
+        pokemonId,
         slotIndex: ev.args.slotIndex,
         nftMint: ev.args.nftMint,
       });
     }
     processedCountRef.current.caught = caughtEvents.length;
     if (newEvents.length > 0) appendEvents(newEvents);
-  }, [caughtEvents, playerAddress, appendEvents]);
+  }, [caughtEvents, playerAddress, appendEvents, throwEvents]);
 
-  // Pipe new failed catch events
+  // Pipe new failed catch events — also creates a paired THROW row
   useEffect(() => {
     if (!playerAddress) return;
     const prev = processedCountRef.current.failed;
@@ -489,19 +497,35 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
     for (let i = prev; i < failedEvents.length; i++) {
       const ev = failedEvents[i];
       if (ev.args.thrower !== playerAddress) continue;
+      const pokemonId = ev.args.pokemonId.toString();
+      const throwInfo = findThrowInfo(pokemonId, ev.args.slotIndex);
+
+      // THROW row (paired with this outcome)
+      newEvents.push({
+        key: `${ev.eventKey}-throw`,
+        type: 'throw',
+        timestamp: ev.receivedAt - 1, // sort just before outcome
+        slot: ev.slot,
+        pokemonId,
+        slotIndex: ev.args.slotIndex,
+        ballType: throwInfo?.ballType,
+        ballName: throwInfo?.ballName,
+      });
+
+      // ESCAPED row
       newEvents.push({
         key: ev.eventKey,
         type: 'escaped',
         timestamp: ev.receivedAt,
         slot: ev.slot,
-        pokemonId: ev.args.pokemonId.toString(),
+        pokemonId,
         slotIndex: ev.args.slotIndex,
         attemptsRemaining: ev.args.attemptsRemaining,
       });
     }
     processedCountRef.current.failed = failedEvents.length;
     if (newEvents.length > 0) appendEvents(newEvents);
-  }, [failedEvents, playerAddress, appendEvents]);
+  }, [failedEvents, playerAddress, appendEvents, throwEvents]);
 
   // No wallet connected - don't show HUD, let the styled RainbowKit button handle connection
   if (!playerAddress) {

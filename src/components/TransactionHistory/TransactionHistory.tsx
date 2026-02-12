@@ -368,14 +368,13 @@ export function TransactionHistory({ isOpen, onClose, playerAddress, events: per
   const allEvents = persistedEvents;
 
   // Compute stats
-  // Throws counter = caught + escaped (each resolved attempt produces exactly
-  // one outcome). This avoids double-counting from the 'throw' log rows which
-  // fire on the initial throw_ball tx before the outcome is known.
+  // Each attempt creates exactly one 'throw' row (paired with its outcome),
+  // so counting 'throw' entries gives the true number of attempts.
   const stats = useMemo(() => {
     const purchases = allEvents.filter(e => e.type === 'purchase').length;
+    const throws = allEvents.filter(e => e.type === 'throw').length;
     const caught = allEvents.filter(e => e.type === 'caught').length;
     const escaped = allEvents.filter(e => e.type === 'escaped').length;
-    const throws = caught + escaped;
     const catchRate = throws > 0 ? Math.round((caught / throws) * 100) : 0;
 
     // Total SOLCATCH spent
