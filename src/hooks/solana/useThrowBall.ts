@@ -28,14 +28,16 @@ import type { BallType } from '../../solana/constants';
 // TYPE DEFINITIONS
 // ============================================================
 
-export type ThrowStatus = 'idle' | 'sending' | 'confirming' | 'waiting_vrf' | 'caught' | 'missed' | 'error';
+export type ThrowStatus = 'idle' | 'sending' | 'confirming' | 'waiting_vrf' | 'caught' | 'missed' | 'relocated' | 'error';
 
 export interface ThrowResult {
-  status: 'caught' | 'missed' | 'error';
+  status: 'caught' | 'missed' | 'relocated' | 'error';
   pokemonId?: bigint;
   slotIndex?: number;
   nftMint?: string;
   attemptsRemaining?: number;
+  newX?: number;
+  newY?: number;
   txSignature?: string;
   errorMessage?: string;
 }
@@ -81,20 +83,48 @@ async function parseConsumeResult(
     const logs = txInfo.meta.logMessages;
     console.log('[parseConsumeResult] Transaction logs:', logs);
 
-    // Look for program log messages that indicate caught or missed
-    // The on-chain code uses msg!() which produces "Program log: ..." entries
+    // Look for program log messages that indicate caught, relocated, or missed.
+    // The on-chain code uses msg!() which produces "Program log: ..." entries.
+    // IMPORTANT: Check relocated BEFORE "NOT caught" — relocation emits FailedCatch too.
     const caughtLog = logs.find((log: string) => log.includes('CAUGHT by'));
+    const relocatedLog = logs.find((log: string) => log.includes('relocated from'));
     const missedLog = logs.find((log: string) => log.includes('NOT caught'));
 
     if (caughtLog) {
       console.log('[parseConsumeResult] CAUGHT! Log:', caughtLog);
-      // Extract Pokemon ID from log: "Pokemon {id} CAUGHT by {player}! NFT: {mint}"
+      // Extract Pokemon ID and NFT mint from log:
+      // "Pokemon {id} CAUGHT by {player}! NFT: {mint_or_none} (transferred: {bool})"
       const pokemonIdMatch = caughtLog.match(/Pokemon (\d+) CAUGHT/);
       const pokemonId = pokemonIdMatch ? BigInt(pokemonIdMatch[1]) : undefined;
+
+      // Extract NFT mint — will be a base58 pubkey or "none (vault empty)"
+      const nftMatch = caughtLog.match(/NFT: ([1-9A-HJ-NP-Za-km-z]{32,44})/);
+      const nftMint = nftMatch ? nftMatch[1] : undefined;
+
       return {
         status: 'caught',
         slotIndex,
         pokemonId,
+        nftMint,
+        txSignature: throwTxSig,
+      };
+    }
+
+    if (relocatedLog) {
+      console.log('[parseConsumeResult] RELOCATED! Log:', relocatedLog);
+      // Extract from: "Pokemon {id} relocated from ({ox}, {oy}) to ({nx}, {ny}). Attempts reset to {n}"
+      const pokemonIdMatch = relocatedLog.match(/Pokemon (\d+) relocated/);
+      const coordsMatch = relocatedLog.match(/to \((\d+), (\d+)\)/);
+      const pokemonId = pokemonIdMatch ? BigInt(pokemonIdMatch[1]) : undefined;
+      const newX = coordsMatch ? parseInt(coordsMatch[1], 10) : undefined;
+      const newY = coordsMatch ? parseInt(coordsMatch[2], 10) : undefined;
+      return {
+        status: 'relocated',
+        slotIndex,
+        pokemonId,
+        attemptsRemaining: 3,
+        newX,
+        newY,
         txSignature: throwTxSig,
       };
     }
@@ -250,7 +280,7 @@ export function useThrowBall(): UseThrowBallReturn {
         if (cancelledRef.current) return false;
 
         setLastResult(parsedResult);
-        setThrowStatus(parsedResult.status === 'caught' ? 'caught' : 'missed');
+        setThrowStatus(parsedResult.status === 'caught' ? 'caught' : parsedResult.status === 'relocated' ? 'relocated' : 'missed');
         setIsLoading(false);
         return true;
       } catch (e) {

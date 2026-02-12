@@ -68,6 +68,17 @@ export async function depositNewNfts(
       const tx = await client.depositNft(nftMint);
       console.log(`    TX: ${tx}`);
       results.push({ nftMint: nftMint.toBase58(), txSignature: tx });
+
+      // Extend the Address Lookup Table with this NFT's mint + vault ATA.
+      // This ensures the frontend can build versioned transactions for consume_randomness
+      // when the vault has > 7 NFTs. Skips if VAULT_ALT_ADDRESS is not configured.
+      try {
+        await client.extendAltForNewNft(nftMint);
+      } catch (altErr) {
+        console.warn(
+          `    ALT extension failed for ${nftMint.toBase58()} (non-fatal): ${altErr instanceof Error ? altErr.message : altErr}`
+        );
+      }
     } catch (err) {
       console.error(
         `    Failed to deposit ${nftMint.toBase58()}: ${err instanceof Error ? err.message : err}`

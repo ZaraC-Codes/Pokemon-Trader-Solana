@@ -343,6 +343,20 @@ function AppContent() {
       } else {
         addToast('Pokemon caught! But the NFT vault was empty — no NFT awarded this time.', 'warning');
       }
+    } else if (result.status === 'relocated' && result.pokemonId !== undefined) {
+      // Pokemon relocated after 3rd miss — ApeChain parity: new position, attempts reset
+      if (catchResultRef.current) {
+        catchResultRef.current(false, result.pokemonId);
+      }
+
+      setSelectedPokemon(null);
+
+      setCatchFailure({
+        type: 'failure',
+        pokemonId: result.pokemonId,
+        attemptsRemaining: 3,
+        relocated: true,
+      });
     } else if (result.status === 'missed' && result.pokemonId !== undefined) {
       if (catchResultRef.current) {
         catchResultRef.current(false, result.pokemonId);

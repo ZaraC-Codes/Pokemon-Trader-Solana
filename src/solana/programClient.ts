@@ -6,11 +6,19 @@
  */
 
 import { Program, AnchorProvider, type Idl, BN } from '@coral-xyz/anchor';
-import { Connection, PublicKey, type TransactionSignature, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  type TransactionSignature,
+  SystemProgram,
+  Transaction,
+  VersionedTransaction,
+  TransactionMessage,
+} from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
   TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import {
@@ -388,7 +396,12 @@ export async function consumeRandomnessWithRetry(
     [playerInventoryPDA] = getPlayerInventoryPDA(playerPubkey);
   }
 
+  // The player's wallet — winner for NFT transfer
+  const winnerPubkey = playerPubkey ?? wallet.publicKey;
+
   // Pass ALL accounts explicitly — do not rely on auto-resolution.
+  // Note: the on-chain struct no longer has optional NFT accounts or rent/associatedToken.
+  // Instead, ALL vault NFTs are passed via remaining_accounts.
   const accounts: Record<string, PublicKey | null> = {
     payer: wallet.publicKey,
     gameConfig: gameConfigPDA,
@@ -397,40 +410,144 @@ export async function consumeRandomnessWithRetry(
     vrfRandomness,
     nftVault: nftVaultPDA,
     playerInventory: playerInventoryPDA,
-    vaultNftTokenAccount: null,
-    playerNftTokenAccount: null,
-    nftMint: null,
-    winner: null,
+    winner: winnerPubkey,
     tokenProgram: TOKEN_PROGRAM_ID,
-    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
-    rent: SYSVAR_RENT_PUBKEY,
   };
 
   console.log('[programClient] consumeRandomnessWithRetry started', {
     payer: wallet.publicKey.toBase58(),
     vrfRequest: vrfRequestPDA.toBase58(),
     vrfRandomness: vrfRandomness.toBase58(),
+    winner: winnerPubkey.toBase58(),
   });
+
+  // ---- Fetch vault state and build remaining_accounts for NFT transfer ----
+  console.log('[programClient] fetching NftVault for remaining_accounts...');
+  const vault = await fetchNftVault(connection);
+  const remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
+
+  if (vault && vault.count > 0) {
+    const activeMints = vault.mints.slice(0, vault.count).filter(
+      (m: PublicKey) => !m.equals(PublicKey.default)
+    );
+
+    console.log(`[programClient] vault has ${activeMints.length} NFTs, building remaining_accounts...`);
+
+    // Derive ATAs for each vault NFT and build remaining_accounts groups of 3
+    const ataCreationIxs: any[] = [];
+
+    for (const mint of activeMints) {
+      const vaultAta = await getAssociatedTokenAddress(mint, nftVaultPDA, true); // allowOwnerOffCurve for PDA
+      const playerAta = await getAssociatedTokenAddress(mint, winnerPubkey);
+
+      // Check if player ATA exists; if not, we need to create it
+      const playerAtaInfo = await connection.getAccountInfo(playerAta);
+      if (!playerAtaInfo) {
+        ataCreationIxs.push(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,  // payer
+            playerAta,         // ATA to create
+            winnerPubkey,      // owner
+            mint               // mint
+          )
+        );
+      }
+
+      // remaining_accounts: [mint (read-only), vault_ata (writable), player_ata (writable)]
+      remainingAccounts.push(
+        { pubkey: mint, isWritable: false, isSigner: false },
+        { pubkey: vaultAta, isWritable: true, isSigner: false },
+        { pubkey: playerAta, isWritable: true, isSigner: false },
+      );
+    }
+
+    // Create any missing player ATAs BEFORE the consume_randomness tx
+    if (ataCreationIxs.length > 0) {
+      console.log(`[programClient] creating ${ataCreationIxs.length} missing player ATA(s)...`);
+      const ataTx = new Transaction();
+      for (const ix of ataCreationIxs) {
+        ataTx.add(ix);
+      }
+      const { blockhash: ataBlockhash } = await connection.getLatestBlockhash('confirmed');
+      ataTx.recentBlockhash = ataBlockhash;
+      ataTx.feePayer = wallet.publicKey;
+      const signedAtaTx = await wallet.signTransaction(ataTx);
+      const ataRawTx = signedAtaTx.serialize();
+      const ataTxSig = await connection.sendRawTransaction(ataRawTx, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+      console.log(`[programClient] ATA creation tx: ${ataTxSig}`);
+      await connection.confirmTransaction(ataTxSig, 'confirmed');
+      console.log('[programClient] ATA creation confirmed');
+    }
+  } else {
+    console.log('[programClient] vault empty or not found, no remaining_accounts needed');
+  }
 
   // Wait for ORAO VRF fulfillment — sub-second, but give it 2s margin
   console.log('[programClient] waiting 2s for ORAO VRF fulfillment...');
   await new Promise((r) => setTimeout(r, 2_000));
 
-  // ---- Build & sign transaction ONCE (one wallet popup) ----
+  // ---- Build consume_randomness instruction ----
   console.log('[programClient] building consumeRandomness transaction...');
-  const tx: Transaction = await program.methods
+  const consumeIx = await program.methods
     .consumeRandomness()
     .accounts(accounts)
-    .transaction();
+    .remainingAccounts(remainingAccounts)
+    .instruction();
 
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = wallet.publicKey;
+  // ---- Choose legacy vs versioned transaction based on vault size ----
+  // Legacy tx fits ~7 NFTs (1232 byte limit). Above that, use VersionedTransaction with ALT.
+  const MAX_LEGACY_NFTS = 7;
+  const vaultNftCount = vault ? vault.count : 0;
+  let rawTx: Buffer;
+  let blockhash: string;
+  let lastValidBlockHeight: number;
 
-  console.log('[programClient] requesting wallet signature (one popup)...');
-  const signedTx = await wallet.signTransaction(tx);
-  const rawTx = signedTx.serialize();
+  if (vaultNftCount <= MAX_LEGACY_NFTS) {
+    // ---- Legacy Transaction path ----
+    console.log(`[programClient] using legacy transaction (${vaultNftCount} vault NFTs)`);
+    const tx = new Transaction().add(consumeIx);
+    ({ blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed'));
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = wallet.publicKey;
+
+    console.log('[programClient] requesting wallet signature (one popup)...');
+    const signedTx = await wallet.signTransaction(tx);
+    rawTx = signedTx.serialize() as Buffer;
+  } else {
+    // ---- Versioned Transaction (v0) with Address Lookup Table ----
+    console.log(`[programClient] using versioned transaction with ALT (${vaultNftCount} vault NFTs)`);
+    const altAddress = import.meta.env.VITE_VAULT_ALT_ADDRESS;
+    if (!altAddress) {
+      throw new Error(
+        `Vault has ${vaultNftCount} NFTs (> ${MAX_LEGACY_NFTS}), but VITE_VAULT_ALT_ADDRESS is not set. ` +
+        'An Address Lookup Table is required for large vaults.'
+      );
+    }
+
+    const altPubkey = new PublicKey(altAddress);
+    const altAccount = await connection.getAddressLookupTable(altPubkey);
+    if (!altAccount.value) {
+      throw new Error(`Address Lookup Table ${altAddress} not found on-chain`);
+    }
+
+    ({ blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed'));
+    const messageV0 = new TransactionMessage({
+      payerKey: wallet.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [consumeIx],
+    }).compileToV0Message([altAccount.value]);
+
+    const versionedTx = new VersionedTransaction(messageV0);
+
+    console.log('[programClient] requesting wallet signature (one popup, versioned tx)...');
+    const signedVersionedTx = await wallet.signTransaction(versionedTx);
+    rawTx = Buffer.from(signedVersionedTx.serialize());
+  }
+
   console.log('[programClient] transaction signed, sending...');
 
   // ---- Send the signed tx with retries (no more popups) ----

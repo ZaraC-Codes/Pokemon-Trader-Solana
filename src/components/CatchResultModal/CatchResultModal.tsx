@@ -25,6 +25,7 @@ interface CatchFailureResult {
   type: 'failure';
   pokemonId: bigint;
   attemptsRemaining: number;
+  relocated?: boolean;
   txHash?: string;
 }
 
@@ -268,18 +269,28 @@ export function CatchResultModal({ isOpen, onClose, onTryAgain, result }: CatchR
               </>
             ) : (
               <>
-                <p style={styles.failureMessage}>The Pokemon broke free!</p>
-                <div style={styles.attemptsSection}>
-                  <div style={styles.attemptsLabel}>Attempts Remaining</div>
-                  <div style={{ ...styles.attemptsValue, ...getAttemptsColor(result.attemptsRemaining) }}>
-                    {result.attemptsRemaining}
+                <p style={styles.failureMessage}>
+                  {result.relocated ? 'The Pokemon broke free and relocated!' : 'The Pokemon broke free!'}
+                </p>
+                {result.relocated ? (
+                  <div style={styles.attemptsSection}>
+                    <p style={{ color: '#ffcc00', fontSize: '14px', marginBottom: '8px' }}>
+                      The Pokemon moved to a new position with fresh attempts.
+                    </p>
+                    <div style={styles.attemptsLabel}>Attempts Reset</div>
+                    <div style={{ ...styles.attemptsValue, ...styles.attemptsHigh }}>
+                      3
+                    </div>
+                    <AttemptsProgressBar attemptsRemaining={3} />
                   </div>
-                  <AttemptsProgressBar attemptsRemaining={result.attemptsRemaining} />
-                </div>
-                {result.attemptsRemaining <= 0 && (
-                  <p style={{ color: '#ff8888', fontSize: '14px', marginTop: '12px' }}>
-                    The Pokemon has relocated!
-                  </p>
+                ) : (
+                  <div style={styles.attemptsSection}>
+                    <div style={styles.attemptsLabel}>Attempts Remaining</div>
+                    <div style={{ ...styles.attemptsValue, ...getAttemptsColor(result.attemptsRemaining) }}>
+                      {result.attemptsRemaining}
+                    </div>
+                    <AttemptsProgressBar attemptsRemaining={result.attemptsRemaining} />
+                  </div>
                 )}
               </>
             )}
@@ -310,10 +321,10 @@ export function CatchResultModal({ isOpen, onClose, onTryAgain, result }: CatchR
                 <button
                   style={{
                     ...styles.button, ...styles.tryAgainButton,
-                    ...(result.attemptsRemaining <= 0 ? styles.buttonDisabled : {}),
+                    ...(result.attemptsRemaining <= 0 && !result.relocated ? styles.buttonDisabled : {}),
                   }}
                   onClick={onTryAgain}
-                  disabled={result.attemptsRemaining <= 0 || !onTryAgain}
+                  disabled={(result.attemptsRemaining <= 0 && !result.relocated) || !onTryAgain}
                 >
                   Try Again
                 </button>

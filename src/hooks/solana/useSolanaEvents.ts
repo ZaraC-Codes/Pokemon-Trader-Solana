@@ -49,6 +49,15 @@ export interface PokemonDespawnedArgs {
   slotIndex: number;
 }
 
+export interface PokemonRelocatedArgs {
+  pokemonId: bigint;
+  slotIndex: number;
+  oldX: number;
+  oldY: number;
+  newX: number;
+  newY: number;
+}
+
 export interface ThrowAttemptedArgs {
   thrower: string;
   pokemonId: bigint;
@@ -69,6 +78,7 @@ export type SolanaEventName =
   | 'FailedCatch'
   | 'PokemonSpawned'
   | 'PokemonDespawned'
+  | 'PokemonRelocated'
   | 'ThrowAttempted'
   | 'NftAwarded';
 
@@ -78,6 +88,7 @@ export type EventArgsMap = {
   FailedCatch: FailedCatchArgs;
   PokemonSpawned: PokemonSpawnedArgs;
   PokemonDespawned: PokemonDespawnedArgs;
+  PokemonRelocated: PokemonRelocatedArgs;
   ThrowAttempted: ThrowAttemptedArgs;
   NftAwarded: NftAwardedArgs;
 };
@@ -111,6 +122,7 @@ const ANCHOR_EVENT_NAMES: Record<SolanaEventName, string> = {
   FailedCatch: 'failedCatch',
   PokemonSpawned: 'pokemonSpawned',
   PokemonDespawned: 'pokemonDespawned',
+  PokemonRelocated: 'pokemonRelocated',
   ThrowAttempted: 'throwAttempted',
   NftAwarded: 'nftAwarded',
 };
@@ -160,6 +172,16 @@ function normalizeEventArgs<T extends SolanaEventName>(
       return {
         pokemonId: BigInt(rawArgs.pokemonId?.toString() ?? '0'),
         slotIndex: rawArgs.slotIndex ?? 0,
+      } as EventArgsMap[T];
+
+    case 'PokemonRelocated':
+      return {
+        pokemonId: BigInt(rawArgs.pokemonId?.toString() ?? '0'),
+        slotIndex: rawArgs.slotIndex ?? 0,
+        oldX: rawArgs.oldX ?? 0,
+        oldY: rawArgs.oldY ?? 0,
+        newX: rawArgs.newX ?? 0,
+        newY: rawArgs.newY ?? 0,
       } as EventArgsMap[T];
 
     case 'ThrowAttempted':
@@ -306,6 +328,12 @@ export function useThrowAttemptedEvents(
   return useSolanaEvents('ThrowAttempted', onThrow);
 }
 
+export function usePokemonRelocatedEvents(
+  onRelocate?: (event: SolanaEvent<'PokemonRelocated'>) => void
+) {
+  return useSolanaEvents('PokemonRelocated', onRelocate);
+}
+
 // ============================================================
 // COMBINED EVENT HOOK
 // ============================================================
@@ -315,6 +343,7 @@ export interface AllGameEventsReturn {
   catches: readonly SolanaEvent<'CaughtPokemon'>[];
   failures: readonly SolanaEvent<'FailedCatch'>[];
   spawns: readonly SolanaEvent<'PokemonSpawned'>[];
+  relocations: readonly SolanaEvent<'PokemonRelocated'>[];
   throws: readonly SolanaEvent<'ThrowAttempted'>[];
   clearAll: () => void;
 }
@@ -324,6 +353,7 @@ export function useAllGameEvents(): AllGameEventsReturn {
   const catches = useSolanaEvents('CaughtPokemon');
   const failures = useSolanaEvents('FailedCatch');
   const spawns = useSolanaEvents('PokemonSpawned');
+  const relocations = useSolanaEvents('PokemonRelocated');
   const throws = useSolanaEvents('ThrowAttempted');
 
   const clearAll = useCallback(() => {
@@ -331,14 +361,16 @@ export function useAllGameEvents(): AllGameEventsReturn {
     catches.clearEvents();
     failures.clearEvents();
     spawns.clearEvents();
+    relocations.clearEvents();
     throws.clearEvents();
-  }, [ballPurchases, catches, failures, spawns, throws]);
+  }, [ballPurchases, catches, failures, spawns, relocations, throws]);
 
   return {
     ballPurchases: ballPurchases.events,
     catches: catches.events,
     failures: failures.events,
     spawns: spawns.events,
+    relocations: relocations.events,
     throws: throws.events,
     clearAll,
   };

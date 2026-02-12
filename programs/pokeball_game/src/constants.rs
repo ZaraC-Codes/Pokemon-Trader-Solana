@@ -4,8 +4,12 @@ pub const MAX_POKEMON_SLOTS: usize = 20;
 /// Maximum coordinate value for Pokemon positions (0-999).
 pub const MAX_COORDINATE: u16 = 999;
 
-/// Maximum throw attempts per Pokemon before despawn.
+/// Maximum throw attempts per Pokemon before relocation.
 pub const MAX_THROW_ATTEMPTS: u8 = 3;
+
+/// Maximum purchase amount per transaction in atomic units (49.9 SOLCATCH).
+/// Matches ApeChain MAX_PURCHASE_USD = $49.90.
+pub const MAX_PURCHASE_AMOUNT: u64 = 49_900_000_000;
 
 /// Maximum number of NFTs the vault can hold.
 pub const MAX_VAULT_SIZE: u8 = 20;

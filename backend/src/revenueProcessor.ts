@@ -15,7 +15,8 @@ import { SolanaClient } from "./solanaClient.js";
 import {
   SOLBALLS_MINT,
   USDC_MINT,
-  TREASURY_WALLET,
+  TREASURY_WALLET_A,
+  TREASURY_WALLET_B,
   JUPITER_BASE_URL,
   JUPITER_API_KEY,
   JUPITER_SLIPPAGE_BPS,
@@ -34,9 +35,12 @@ export interface SwapResult {
 
 export interface SplitResult {
   treasuryAmount: bigint;
+  treasuryAAmount: bigint;
+  treasuryBAmount: bigint;
   nftPoolAmount: bigint;
   solReserveAmount: bigint;
-  treasuryTx: string;
+  treasuryATx: string;
+  treasuryBTx: string;
   solReserveTx: string | null;
 }
 
@@ -183,7 +187,10 @@ export async function runSwap(client: SolanaClient): Promise<SwapResult> {
 }
 
 /**
- * Split USDC in backend wallet: treasury + NFT pool + SOL reserve.
+ * Split USDC in backend wallet:
+ *   3% treasury (1.5% wallet A + 1.5% wallet B) as USDC
+ *   96% NFT pool (stays in backend wallet as USDC for Gacha)
+ *   1% SOL reserve (swapped from USDC to SOL for gas fees)
  */
 export async function runSplit(
   client: SolanaClient,
@@ -191,9 +198,16 @@ export async function runSplit(
 ): Promise<SplitResult> {
   const { treasury, nftPool, solReserve } = splitUsdcAmounts(totalUsdc);
 
+  // Split treasury 50/50 between partners (remainder to B to avoid rounding loss)
+  const treasuryA = treasury / 2n;
+  const treasuryB = treasury - treasuryA;
+
   console.log(`  Splitting ${Number(totalUsdc) / 1e6} USDC:`);
   console.log(
-    `    Treasury (${REVENUE_TREASURY_PCT}%): ${Number(treasury) / 1e6} USDC`
+    `    Treasury A (1.5%): ${Number(treasuryA) / 1e6} USDC -> ${TREASURY_WALLET_A.toBase58().slice(0, 8)}...`
+  );
+  console.log(
+    `    Treasury B (1.5%): ${Number(treasuryB) / 1e6} USDC -> ${TREASURY_WALLET_B.toBase58().slice(0, 8)}...`
   );
   console.log(
     `    NFT Pool (${REVENUE_NFT_POOL_PCT}%): ${Number(nftPool) / 1e6} USDC (stays in wallet)`
@@ -202,24 +216,25 @@ export async function runSplit(
     `    SOL Reserve (${REVENUE_RESERVES_PCT}%): ${Number(solReserve) / 1e6} USDC -> SOL`
   );
 
-  // Transfer treasury USDC
-  let treasuryTxSig = "";
-  if (treasury > 0n) {
-    const backendUsdcAta = await getAssociatedTokenAddress(
+  const backendUsdcAta = await getAssociatedTokenAddress(
+    USDC_MINT,
+    client.wallet.publicKey
+  );
+
+  // Transfer treasury A USDC
+  let treasuryATxSig = "";
+  if (treasuryA > 0n) {
+    const treasuryAUsdcAta = await getAssociatedTokenAddress(
       USDC_MINT,
-      client.wallet.publicKey
-    );
-    const treasuryUsdcAta = await getAssociatedTokenAddress(
-      USDC_MINT,
-      TREASURY_WALLET
+      TREASURY_WALLET_A
     );
 
     const tx = new Transaction().add(
       createTransferInstruction(
         backendUsdcAta,
-        treasuryUsdcAta,
+        treasuryAUsdcAta,
         client.wallet.publicKey,
-        treasury,
+        treasuryA,
         [],
         TOKEN_PROGRAM_ID
       )
@@ -231,14 +246,46 @@ export async function runSplit(
     ).blockhash;
     tx.sign(client.wallet);
 
-    treasuryTxSig = await client.connection.sendRawTransaction(
+    treasuryATxSig = await client.connection.sendRawTransaction(
       tx.serialize()
     );
-    await client.connection.confirmTransaction(treasuryTxSig, "confirmed");
-    console.log(`  Treasury transfer TX: ${treasuryTxSig}`);
+    await client.connection.confirmTransaction(treasuryATxSig, "confirmed");
+    console.log(`  Treasury A transfer TX: ${treasuryATxSig}`);
   }
 
-  // Swap SOL reserve portion (USDC -> SOL via Jupiter)
+  // Transfer treasury B USDC
+  let treasuryBTxSig = "";
+  if (treasuryB > 0n) {
+    const treasuryBUsdcAta = await getAssociatedTokenAddress(
+      USDC_MINT,
+      TREASURY_WALLET_B
+    );
+
+    const tx = new Transaction().add(
+      createTransferInstruction(
+        backendUsdcAta,
+        treasuryBUsdcAta,
+        client.wallet.publicKey,
+        treasuryB,
+        [],
+        TOKEN_PROGRAM_ID
+      )
+    );
+
+    tx.feePayer = client.wallet.publicKey;
+    tx.recentBlockhash = (
+      await client.connection.getLatestBlockhash()
+    ).blockhash;
+    tx.sign(client.wallet);
+
+    treasuryBTxSig = await client.connection.sendRawTransaction(
+      tx.serialize()
+    );
+    await client.connection.confirmTransaction(treasuryBTxSig, "confirmed");
+    console.log(`  Treasury B transfer TX: ${treasuryBTxSig}`);
+  }
+
+  // Swap SOL reserve portion (USDC -> SOL via Jupiter for gas fees)
   let solReserveTx: string | null = null;
   if (solReserve > 0n) {
     try {
@@ -264,9 +311,12 @@ export async function runSplit(
 
   return {
     treasuryAmount: treasury,
+    treasuryAAmount: treasuryA,
+    treasuryBAmount: treasuryB,
     nftPoolAmount: nftPool,
     solReserveAmount: solReserve,
-    treasuryTx: treasuryTxSig,
+    treasuryATx: treasuryATxSig,
+    treasuryBTx: treasuryBTxSig,
     solReserveTx,
   };
 }

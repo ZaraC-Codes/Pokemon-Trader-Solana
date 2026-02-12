@@ -84,8 +84,8 @@ pub mod pokeball_game {
 
     /// Anyone can call after ORAO fulfills randomness.
     /// Determines catch/miss for throws, sets position for spawns.
-    pub fn consume_randomness(
-        ctx: Context<ConsumeRandomness>,
+    pub fn consume_randomness<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ConsumeRandomness<'info>>,
     ) -> Result<()> {
         instructions::consume_randomness::handler(ctx)
     }

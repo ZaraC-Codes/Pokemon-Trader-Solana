@@ -75,6 +75,12 @@ pub fn handler(
     require!(total_cost <= u64::MAX as u128, GameError::MathOverflow);
     let total_cost = total_cost as u64;
 
+    // Enforce maximum purchase amount per transaction (matches ApeChain MAX_PURCHASE_USD)
+    require!(
+        total_cost <= MAX_PURCHASE_AMOUNT,
+        GameError::PurchaseExceedsMax
+    );
+
     // Check player has sufficient balance
     require!(
         ctx.accounts.player_token_account.amount >= total_cost,

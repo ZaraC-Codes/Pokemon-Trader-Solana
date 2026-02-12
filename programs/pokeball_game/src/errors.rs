@@ -79,4 +79,7 @@ pub enum GameError {
 
     #[msg("Unauthorized: only authority can call this instruction")]
     Unauthorized,
+
+    #[msg("NFT transfer accounts not found in remaining_accounts for the awarded mint")]
+    NftTransferAccountsMissing,
 }

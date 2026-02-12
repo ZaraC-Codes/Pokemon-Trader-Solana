@@ -39,7 +39,9 @@ export const USDC_MINT = new PublicKey(
 export const BACKEND_WALLET_PRIVATE_KEY = requireEnv(
   "BACKEND_WALLET_PRIVATE_KEY"
 );
-export const TREASURY_WALLET = new PublicKey(requireEnv("TREASURY_WALLET"));
+// Dual treasury: each partner receives 1.5% of revenue as USDC (3% total split 50/50)
+export const TREASURY_WALLET_A = new PublicKey(requireEnv("TREASURY_WALLET_A"));
+export const TREASURY_WALLET_B = new PublicKey(requireEnv("TREASURY_WALLET_B"));
 
 // Revenue split (must total 100)
 export const REVENUE_TREASURY_PCT = Number(
@@ -80,6 +82,9 @@ export const MIN_PACKS_PER_RUN = Number(
   optionalEnv("MIN_PACKS_PER_RUN", "1")
 );
 export const MAX_VAULT_SIZE = 20;
+
+// Address Lookup Table for vault NFTs (optional — needed if vault > 7 NFTs)
+export const VAULT_ALT_ADDRESS = process.env.VAULT_ALT_ADDRESS || "";
 
 // Cron interval (ms)
 export const CRON_INTERVAL_MS = Number(

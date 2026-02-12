@@ -113,13 +113,11 @@ pub fn handler(
         .checked_add(1)
         .ok_or(GameError::MathOverflow)?;
 
-    // Increment throw attempts on this Pokemon
-    let pokemon_slots = &mut ctx.accounts.pokemon_slots;
-    pokemon_slots.slots[slot_idx].throw_attempts = pokemon_slots.slots[slot_idx].throw_attempts
-        .checked_add(1)
-        .ok_or(GameError::MathOverflow)?;
+    // NOTE: throw_attempts is NOT incremented here.
+    // ApeChain behavior: attempts are tracked at resolution time in consume_randomness.
+    // This ensures unresolved VRF requests don't consume attempts.
 
-    let pokemon_id = pokemon_slots.slots[slot_idx].pokemon_id;
+    let pokemon_id = ctx.accounts.pokemon_slots.slots[slot_idx].pokemon_id;
 
     // Generate VRF seed using shared helper
     let game_config = &ctx.accounts.game_config;

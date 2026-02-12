@@ -11,6 +11,9 @@ import {
   SystemProgram,
   VersionedTransaction,
   TransactionMessage,
+  Transaction,
+  AddressLookupTableProgram,
+  sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -27,6 +30,7 @@ import {
   BACKEND_WALLET_PRIVATE_KEY,
   SOLBALLS_MINT,
   USDC_MINT,
+  VAULT_ALT_ADDRESS,
 } from "./config.js";
 
 // PDA seed constants (must match program constants.rs)
@@ -348,5 +352,96 @@ export class SolanaClient {
     );
 
     return sig;
+  }
+
+  // ============================================================
+  // ADDRESS LOOKUP TABLE (ALT) MANAGEMENT
+  // ============================================================
+
+  /**
+   * Get the vault ALT address from env config.
+   * Returns null if not configured.
+   */
+  getVaultAltAddress(): PublicKey | null {
+    if (!VAULT_ALT_ADDRESS) return null;
+    try {
+      return new PublicKey(VAULT_ALT_ADDRESS);
+    } catch {
+      console.warn(`[SolanaClient] Invalid VAULT_ALT_ADDRESS: ${VAULT_ALT_ADDRESS}`);
+      return null;
+    }
+  }
+
+  /**
+   * Create a new Address Lookup Table for the vault.
+   * Returns the ALT address. This is a one-time operation.
+   */
+  async createVaultAlt(): Promise<PublicKey> {
+    const slot = await this.connection.getSlot("confirmed");
+
+    const [createIx, altAddress] = AddressLookupTableProgram.createLookupTable({
+      authority: this.wallet.publicKey,
+      payer: this.wallet.publicKey,
+      recentSlot: slot,
+    });
+
+    const tx = new Transaction().add(createIx);
+    await sendAndConfirmTransaction(this.connection, tx, [this.wallet], {
+      commitment: "confirmed",
+    });
+
+    console.log(`[SolanaClient] Created ALT: ${altAddress.toBase58()}`);
+    return altAddress;
+  }
+
+  /**
+   * Extend the vault ALT with new addresses (NFT mint + vault ATA).
+   * Should be called after depositing a new NFT into the vault.
+   *
+   * ALT requires 1 slot (~400ms) deactivation period after extension
+   * before the new entries are usable.
+   */
+  async extendVaultAlt(
+    altAddress: PublicKey,
+    newAddresses: PublicKey[]
+  ): Promise<string> {
+    if (newAddresses.length === 0) return "";
+
+    const extendIx = AddressLookupTableProgram.extendLookupTable({
+      payer: this.wallet.publicKey,
+      authority: this.wallet.publicKey,
+      lookupTable: altAddress,
+      addresses: newAddresses,
+    });
+
+    const tx = new Transaction().add(extendIx);
+    const sig = await sendAndConfirmTransaction(this.connection, tx, [this.wallet], {
+      commitment: "confirmed",
+    });
+
+    console.log(
+      `[SolanaClient] Extended ALT ${altAddress.toBase58()} with ${newAddresses.length} addresses. TX: ${sig}`
+    );
+    return sig;
+  }
+
+  /**
+   * Extend the vault ALT with a newly deposited NFT's mint + vault ATA.
+   * Skips if VAULT_ALT_ADDRESS is not configured (vault has ≤7 NFTs, ALT not needed).
+   */
+  async extendAltForNewNft(nftMint: PublicKey): Promise<void> {
+    const altAddress = this.getVaultAltAddress();
+    if (!altAddress) {
+      console.log("[SolanaClient] No VAULT_ALT_ADDRESS configured, skipping ALT extension");
+      return;
+    }
+
+    const vaultAta = await getAssociatedTokenAddress(
+      nftMint,
+      this.pdas.nftVault,
+      true // allowOwnerOffCurve for PDA
+    );
+
+    await this.extendVaultAlt(altAddress, [nftMint, vaultAta]);
   }
 }

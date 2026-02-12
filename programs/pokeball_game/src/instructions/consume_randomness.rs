@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{self, Token, Transfer};
 use orao_solana_vrf::state::RandomnessAccountData;
 use orao_solana_vrf::RANDOMNESS_ACCOUNT_SEED;
 
@@ -58,34 +57,20 @@ pub struct ConsumeRandomness<'info> {
     #[account(mut)]
     pub player_inventory: Option<Account<'info, PlayerInventory>>,
 
-    /// Source NFT token account (vault's ATA for the NFT).
-    /// Optional: only needed when catch succeeds and vault has NFTs.
-    /// CHECK: Validated in handler if needed.
+    /// The player/winner wallet — needed as destination owner for NFT transfer.
+    /// CHECK: Validated against vrf_request.player in handler.
     #[account(mut)]
-    pub vault_nft_token_account: Option<AccountInfo<'info>>,
-
-    /// Destination NFT token account (player's ATA for the NFT).
-    /// Optional: only needed when catch succeeds.
-    /// CHECK: Validated in handler if needed.
-    #[account(mut)]
-    pub player_nft_token_account: Option<AccountInfo<'info>>,
-
-    /// NFT mint — needed for ATA creation/verification.
-    /// CHECK: Validated in handler if needed.
-    pub nft_mint: Option<AccountInfo<'info>>,
-
-    /// The player/winner wallet — needed for ATA creation.
-    /// CHECK: Validated in handler.
-    #[account(mut)]
-    pub winner: Option<AccountInfo<'info>>,
+    pub winner: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
+    // remaining_accounts: groups of 3 per vault NFT:
+    //   [0] NFT mint (AccountInfo, read-only)
+    //   [1] Vault's ATA for this mint (AccountInfo, writable)
+    //   [2] Player's ATA for this mint (AccountInfo, writable)
 }
 
-pub fn handler(ctx: Context<ConsumeRandomness>) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, 'info, 'info, ConsumeRandomness<'info>>) -> Result<()> {
     // Manually deserialize the ORAO VRF randomness account (it's an enum, not a struct)
     let randomness_account_info = &ctx.accounts.vrf_randomness;
     let data = randomness_account_info.try_borrow_data()?;
@@ -112,7 +97,7 @@ pub fn handler(ctx: Context<ConsumeRandomness>) -> Result<()> {
 
 /// Handle VRF result for a spawn request.
 /// Assigns a random position and creates the Pokemon in the target slot.
-fn handle_spawn(ctx: Context<ConsumeRandomness>, randomness: &[u8; 64]) -> Result<()> {
+fn handle_spawn<'info>(ctx: Context<'_, '_, 'info, 'info, ConsumeRandomness<'info>>, randomness: &[u8; 64]) -> Result<()> {
     let slot_idx = ctx.accounts.vrf_request.slot_index as usize;
     require!(slot_idx < MAX_POKEMON_SLOTS, GameError::InvalidSlotIndex);
 
@@ -161,7 +146,7 @@ fn handle_spawn(ctx: Context<ConsumeRandomness>, randomness: &[u8; 64]) -> Resul
 
 /// Handle VRF result for a throw request.
 /// Determines catch/miss, awards NFT if caught and vault has stock.
-fn handle_throw(ctx: Context<ConsumeRandomness>, randomness: &[u8; 64]) -> Result<()> {
+fn handle_throw<'info>(ctx: Context<'_, '_, 'info, 'info, ConsumeRandomness<'info>>, randomness: &[u8; 64]) -> Result<()> {
     let slot_idx = ctx.accounts.vrf_request.slot_index as usize;
     require!(slot_idx < MAX_POKEMON_SLOTS, GameError::InvalidSlotIndex);
 
@@ -182,6 +167,7 @@ fn handle_throw(ctx: Context<ConsumeRandomness>, randomness: &[u8; 64]) -> Resul
     if caught {
         // === CAUGHT ===
         let mut awarded_mint = Pubkey::default();
+        let mut nft_transferred = false;
 
         if ctx.accounts.nft_vault.count > 0 {
             // Use bytes [8..16] for NFT selection (independent from catch roll)
@@ -190,49 +176,72 @@ fn handle_throw(ctx: Context<ConsumeRandomness>, randomness: &[u8; 64]) -> Resul
 
             awarded_mint = ctx.accounts.nft_vault.mints[nft_index];
 
-            // Transfer NFT from vault to player if optional accounts are present
-            if let (
-                Some(vault_nft_account),
-                Some(player_nft_account),
-                Some(_nft_mint),
-                Some(_winner),
-            ) = (
-                ctx.accounts.vault_nft_token_account.as_ref(),
-                ctx.accounts.player_nft_token_account.as_ref(),
-                ctx.accounts.nft_mint.as_ref(),
-                ctx.accounts.winner.as_ref(),
-            ) {
-                // Transfer NFT using NftVault PDA signer seeds
-                let nft_vault_seeds = &[
-                    NFT_VAULT_SEED,
-                    &[ctx.accounts.nft_vault.bump],
-                ];
-                let vault_signer_seeds = &[&nft_vault_seeds[..]];
+            // ALWAYS remove NFT from vault FIRST (prevents double-award).
+            // Even if remaining_accounts don't contain the right transfer accounts,
+            // the vault is updated atomically so no other catch can select this NFT.
+            let last_idx = (ctx.accounts.nft_vault.count - 1) as usize;
+            if nft_index != last_idx {
+                ctx.accounts.nft_vault.mints[nft_index] = ctx.accounts.nft_vault.mints[last_idx];
+            }
+            ctx.accounts.nft_vault.mints[last_idx] = Pubkey::default();
+            ctx.accounts.nft_vault.count = ctx.accounts.nft_vault.count.saturating_sub(1);
 
-                let transfer_ctx = CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    Transfer {
-                        from: vault_nft_account.to_account_info(),
-                        to: player_nft_account.to_account_info(),
-                        authority: ctx.accounts.nft_vault.to_account_info(),
-                    },
-                    vault_signer_seeds,
-                );
-                token::transfer(transfer_ctx, 1)?;
+            // Search remaining_accounts for the awarded mint's transfer accounts.
+            // Layout: groups of 3 [nft_mint, vault_ata, player_ata].
+            // The frontend passes ALL vault NFTs; the program picks the winner here.
+            let remaining = &ctx.remaining_accounts;
+            let num_nft_groups = remaining.len() / 3;
 
-                // Swap-and-pop removal from vault (O(1))
-                let last_idx = (ctx.accounts.nft_vault.count - 1) as usize;
-                if nft_index != last_idx {
-                    ctx.accounts.nft_vault.mints[nft_index] = ctx.accounts.nft_vault.mints[last_idx];
+            for i in 0..num_nft_groups {
+                let ra_mint = &remaining[i * 3];
+                let ra_vault_ata = &remaining[i * 3 + 1];
+                let ra_player_ata = &remaining[i * 3 + 2];
+
+                if ra_mint.key() == awarded_mint {
+                    // Validate token account ownership (must be SPL Token program)
+                    require!(
+                        *ra_vault_ata.owner == token::ID,
+                        GameError::NftTransferAccountsMissing
+                    );
+                    require!(
+                        *ra_player_ata.owner == token::ID,
+                        GameError::NftTransferAccountsMissing
+                    );
+
+                    // Transfer 1 NFT from vault ATA to player ATA
+                    let nft_vault_seeds = &[
+                        NFT_VAULT_SEED,
+                        &[ctx.accounts.nft_vault.bump],
+                    ];
+                    let vault_signer_seeds = &[&nft_vault_seeds[..]];
+
+                    let transfer_ctx = CpiContext::new_with_signer(
+                        ctx.accounts.token_program.to_account_info(),
+                        Transfer {
+                            from: ra_vault_ata.to_account_info(),
+                            to: ra_player_ata.to_account_info(),
+                            authority: ctx.accounts.nft_vault.to_account_info(),
+                        },
+                        vault_signer_seeds,
+                    );
+                    token::transfer(transfer_ctx, 1)?;
+
+                    nft_transferred = true;
+                    break;
                 }
-                ctx.accounts.nft_vault.mints[last_idx] = Pubkey::default();
-                ctx.accounts.nft_vault.count = ctx.accounts.nft_vault.count.saturating_sub(1);
+            }
 
-                emit!(NftAwarded {
-                    winner: player,
-                    nft_mint: awarded_mint,
-                    vault_remaining: ctx.accounts.nft_vault.count,
-                });
+            emit!(NftAwarded {
+                winner: player,
+                nft_mint: awarded_mint,
+                vault_remaining: ctx.accounts.nft_vault.count,
+            });
+
+            if !nft_transferred {
+                msg!(
+                    "WARNING: NFT {} removed from vault but transfer accounts not provided. Backend sweep required.",
+                    awarded_mint
+                );
             }
         }
 
@@ -255,42 +264,76 @@ fn handle_throw(ctx: Context<ConsumeRandomness>, randomness: &[u8; 64]) -> Resul
         });
 
         msg!(
-            "Pokemon {} CAUGHT by {}! NFT: {}",
+            "Pokemon {} CAUGHT by {}! NFT: {} (transferred: {})",
             pokemon_id,
             player,
             if awarded_mint == Pubkey::default() { "none (vault empty)".to_string() }
-            else { awarded_mint.to_string() }
+            else { awarded_mint.to_string() },
+            nft_transferred
         );
     } else {
         // === MISSED ===
-        let attempts_remaining = MAX_THROW_ATTEMPTS.saturating_sub(
-            ctx.accounts.pokemon_slots.slots[slot_idx].throw_attempts
-        );
+        // Increment throw_attempts HERE (moved from throw_ball — matches ApeChain behavior).
+        // This ensures unresolved VRF requests don't consume attempts.
+        ctx.accounts.pokemon_slots.slots[slot_idx].throw_attempts = ctx.accounts.pokemon_slots.slots[slot_idx]
+            .throw_attempts
+            .checked_add(1)
+            .ok_or(GameError::MathOverflow)?;
 
-        if attempts_remaining == 0 {
-            // Pokemon escapes — despawn
-            ctx.accounts.pokemon_slots.slots[slot_idx] = PokemonSlot::default();
-            ctx.accounts.pokemon_slots.active_count = ctx.accounts.pokemon_slots.active_count.saturating_sub(1);
+        let throw_attempts = ctx.accounts.pokemon_slots.slots[slot_idx].throw_attempts;
 
-            emit!(PokemonDespawned {
+        if throw_attempts >= MAX_THROW_ATTEMPTS {
+            // ApeChain behavior: RELOCATE the Pokemon (new random position, reset attempts).
+            // Pokemon survives — it just moves to a new location with fresh attempts.
+            let old_x = ctx.accounts.pokemon_slots.slots[slot_idx].pos_x;
+            let old_y = ctx.accounts.pokemon_slots.slots[slot_idx].pos_y;
+
+            // Use randomness bytes [16..20] for relocation position
+            // (independent from catch roll [0..8] and NFT selection [8..16])
+            let new_x = u16::from_le_bytes([randomness[16], randomness[17]]) % (MAX_COORDINATE + 1);
+            let new_y = u16::from_le_bytes([randomness[18], randomness[19]]) % (MAX_COORDINATE + 1);
+
+            ctx.accounts.pokemon_slots.slots[slot_idx].pos_x = new_x;
+            ctx.accounts.pokemon_slots.slots[slot_idx].pos_y = new_y;
+            ctx.accounts.pokemon_slots.slots[slot_idx].throw_attempts = 0;
+
+            emit!(PokemonRelocated {
                 pokemon_id,
                 slot_index,
+                old_x,
+                old_y,
+                new_x,
+                new_y,
             });
 
-            msg!("Pokemon {} escaped and despawned (max attempts)", pokemon_id);
+            // After relocation: throw_attempts reset to 0, so attempts_remaining = 3
+            emit!(FailedCatch {
+                thrower: player,
+                pokemon_id,
+                slot_index,
+                attempts_remaining: MAX_THROW_ATTEMPTS,
+            });
+
+            msg!(
+                "Pokemon {} relocated from ({}, {}) to ({}, {}). Attempts reset to {}",
+                pokemon_id, old_x, old_y, new_x, new_y, MAX_THROW_ATTEMPTS
+            );
+        } else {
+            // Normal miss — Pokemon stays at same position
+            let attempts_remaining = MAX_THROW_ATTEMPTS - throw_attempts;
+
+            emit!(FailedCatch {
+                thrower: player,
+                pokemon_id,
+                slot_index,
+                attempts_remaining,
+            });
+
+            msg!(
+                "Pokemon {} NOT caught. Attempts remaining: {}",
+                pokemon_id, attempts_remaining
+            );
         }
-
-        emit!(FailedCatch {
-            thrower: player,
-            pokemon_id,
-            slot_index,
-            attempts_remaining,
-        });
-
-        msg!(
-            "Pokemon {} NOT caught. Attempts remaining: {}",
-            pokemon_id, attempts_remaining
-        );
     }
 
     // Mark VRF request fulfilled
