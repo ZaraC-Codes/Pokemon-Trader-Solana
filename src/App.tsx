@@ -267,12 +267,17 @@ function AppContent() {
   }, []);
 
   const handlePokemonClick = useCallback((data: PokemonClickData) => {
+    const remaining = 3 - data.attemptCount;
+    if (remaining <= 0) {
+      addToast('No attempts remaining for this Pokemon!', 'warning');
+      return;
+    }
     setSelectedPokemon({
       pokemonId: data.pokemonId,
       slotIndex: data.slotIndex,
-      attemptsRemaining: 3 - data.attemptCount,
+      attemptsRemaining: remaining,
     });
-  }, []);
+  }, [addToast]);
 
   const lastOutOfRangeAtRef = useRef<number>(0);
 

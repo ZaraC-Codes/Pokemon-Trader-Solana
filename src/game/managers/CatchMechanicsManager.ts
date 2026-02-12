@@ -346,7 +346,11 @@ export class CatchMechanicsManager {
       return;
     }
 
-    // Player is in range - emit event for React to open the modal
+    // Player is in range — emit event for React to open the CatchAttemptModal.
+    // The Solana frontend handles ball selection, throw transactions, and VRF
+    // resolution entirely through the modal + useThrowBall hook.
+    // We do NOT change state here or call initiateThrow — that would block
+    // future clicks if the user closes the modal without throwing.
     console.log('[CatchMechanicsManager] Player in range, emitting pokemon-catch-ready');
     this.scene.events.emit('pokemon-catch-ready', {
       pokemonId: spawn.id,
@@ -355,39 +359,6 @@ export class CatchMechanicsManager {
       x: spawn.x,
       y: spawn.y,
     });
-
-    // Check if player has any balls
-    if (!this.inventoryManager.hasAnyBalls()) {
-      console.log('[CatchMechanicsManager] No balls available');
-      this.handleError('No PokeBalls available! Visit the shop to buy more.');
-      return;
-    }
-
-    // Request ball selection from UI
-    if (!this.ballSelectionHandler) {
-      console.warn('[CatchMechanicsManager] No ball selection handler set');
-      // Auto-select best available ball as fallback
-      const bestBall = this.inventoryManager.getBestAvailableBall();
-      if (bestBall !== null) {
-        await this.initiateThrow(pokemonId, bestBall);
-      }
-      return;
-    }
-
-    // Call handler and wait for user selection
-    try {
-      const selectedBall = await this.ballSelectionHandler(pokemonId);
-
-      if (selectedBall === null) {
-        console.log('[CatchMechanicsManager] Ball selection cancelled');
-        return;
-      }
-
-      await this.initiateThrow(pokemonId, selectedBall);
-    } catch (error) {
-      console.error('[CatchMechanicsManager] Ball selection error:', error);
-      this.handleError('Failed to select ball');
-    }
   }
 
   /**

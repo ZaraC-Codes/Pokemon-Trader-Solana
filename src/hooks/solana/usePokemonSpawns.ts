@@ -94,7 +94,12 @@ export function usePokemonSpawns(): UsePokemonSpawnsReturn {
       slotIndex: index,
     }));
 
-    const active = all.filter((s) => s.isActive);
+    // Filter to active spawns that still have attempts left.
+    // Pokemon at max attempts (3) are "dead" — consume_randomness should have
+    // despawned them, but if it wasn't called (broken VRF flow), they're stuck.
+    // Hide them so players don't click on unthrowable Pokemon.
+    const MAX_THROW_ATTEMPTS = 3;
+    const active = all.filter((s) => s.isActive && s.attemptCount < MAX_THROW_ATTEMPTS);
     const indices = active.map((s) => s.slotIndex);
 
     return {
