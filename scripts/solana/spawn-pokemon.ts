@@ -23,6 +23,35 @@ import {
   VRF_REQ_SEED,
 } from "./common";
 
+// ============================================================
+// CENTRAL ZONE — guarantee spawns near the player start
+// ============================================================
+
+const CENTER_X = 500;           // Player spawn center in contract coords (0-999)
+const CENTER_Y = 500;
+const CENTER_RADIUS = 80;       // ±80 contract units ≈ ±192 pixels ≈ 12 tiles
+const MIN_CENTRAL_SPAWNS = 4;   // Guarantee at least this many near center
+const EDGE_MARGIN = 50;         // Keep central spawns away from map edges
+
+/** Random int in [min, max] inclusive */
+function randRange(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/** Random position within the central zone, clamped away from edges */
+function randomCentralPosition(): { x: number; y: number } {
+  const minX = Math.max(EDGE_MARGIN, CENTER_X - CENTER_RADIUS);
+  const maxX = Math.min(999 - EDGE_MARGIN, CENTER_X + CENTER_RADIUS);
+  const minY = Math.max(EDGE_MARGIN, CENTER_Y - CENTER_RADIUS);
+  const maxY = Math.min(999 - EDGE_MARGIN, CENTER_Y + CENTER_RADIUS);
+  return { x: randRange(minX, maxX), y: randRange(minY, maxY) };
+}
+
+/** Random position anywhere on the map (0-999) */
+function randomMapPosition(): { x: number; y: number } {
+  return { x: Math.floor(Math.random() * 1000), y: Math.floor(Math.random() * 1000) };
+}
+
 async function main() {
   const args = process.argv.slice(2);
 
@@ -55,12 +84,19 @@ async function main() {
   const { program, provider, authority } = loadProgram();
   const pdas = deriveGamePDAs(program.programId);
 
-  // Batch mode: force-spawn multiple slots at random positions
+  // Batch mode: force-spawn multiple slots with central-first positioning
   if (batchSlots) {
+    const centralCount = Math.min(MIN_CENTRAL_SPAWNS, batchSlots.length);
     console.log(`=== Batch Force Spawn: slots [${batchSlots.join(", ")}] ===`);
-    for (const slot of batchSlots) {
-      const x = Math.floor(Math.random() * 1000);
-      const y = Math.floor(Math.random() * 1000);
+    console.log(`  Central zone: (${CENTER_X}±${CENTER_RADIUS}, ${CENTER_Y}±${CENTER_RADIUS})`);
+    console.log(`  Guaranteeing ${centralCount} central spawns, ${batchSlots.length - centralCount} random`);
+
+    for (let i = 0; i < batchSlots.length; i++) {
+      const slot = batchSlots[i];
+      const isCentral = i < MIN_CENTRAL_SPAWNS;
+      const { x, y } = isCentral ? randomCentralPosition() : randomMapPosition();
+      const label = isCentral ? "(central)" : "(random)";
+
       try {
         const tx = await program.methods
           .forceSpawnPokemon(slot, x, y)
@@ -70,7 +106,7 @@ async function main() {
             pokemonSlots: pdas.pokemonSlots,
           })
           .rpc();
-        console.log(`  Slot ${slot}: Spawned at (${x}, ${y}) — TX: ${tx}`);
+        console.log(`  Slot ${slot}: Spawned at (${x}, ${y}) ${label} — TX: ${tx}`);
       } catch (err: any) {
         console.error(`  Slot ${slot}: FAILED — ${err.message || err}`);
       }
