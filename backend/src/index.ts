@@ -8,6 +8,7 @@ import { runRevenueProcessor } from "./revenueProcessor.js";
 import { purchaseMultiplePacks } from "./gachaClient.js";
 import { mockPurchasePacks } from "./mockGacha.js";
 import { depositNewNfts } from "./nftDepositor.js";
+import { ensureCentralSpawns } from "./spawnManager.js";
 import {
   ADMIN_API_KEY,
   PORT,
@@ -24,6 +25,7 @@ import {
 let lastSwapTime: Date | null = null;
 let lastGachaTime: Date | null = null;
 let lastDepositTime: Date | null = null;
+let lastSpawnCheckTime: Date | null = null;
 let isProcessing = false;
 
 // ── Solana Client (lazy init) ──────────────────────────────────
@@ -128,6 +130,22 @@ async function cronTick(): Promise<void> {
 
     // Phase 2: Gacha + deposit (runs regardless of phase 1)
     await runGachaPipeline(c);
+
+    // Phase 3: Spawn management (ensure central zone has >= 4 Pokemon)
+    try {
+      const spawnResult = await ensureCentralSpawns(c);
+      lastSpawnCheckTime = new Date();
+      if (spawnResult.spawned > 0) {
+        console.log(
+          `[Cron] Spawn manager: spawned ${spawnResult.spawned}, ` +
+            `central ${spawnResult.centralBefore}->${spawnResult.centralAfter}`
+        );
+      }
+    } catch (spawnErr) {
+      console.error(
+        `[Cron] Spawn manager error: ${spawnErr instanceof Error ? spawnErr.message : spawnErr}`
+      );
+    }
   } catch (err) {
     console.error(
       `[Cron] Error: ${err instanceof Error ? err.message : err}`
@@ -166,6 +184,7 @@ app.get("/status", requireAuth, async (_req, res) => {
       lastSwapTime: lastSwapTime?.toISOString() || null,
       lastGachaTime: lastGachaTime?.toISOString() || null,
       lastDepositTime: lastDepositTime?.toISOString() || null,
+      lastSpawnCheckTime: lastSpawnCheckTime?.toISOString() || null,
       isProcessing,
       backendWallet: c.wallet.publicKey.toBase58(),
     });
@@ -221,6 +240,29 @@ app.post("/trigger-gacha", requireAuth, async (_req, res) => {
   }
 });
 
+// Manual spawn check trigger
+app.post("/trigger-spawns", requireAuth, async (req, res) => {
+  if (isProcessing) {
+    res.status(409).json({ error: "Processing already in progress" });
+    return;
+  }
+
+  isProcessing = true;
+  try {
+    const c = getClient();
+    const fillGlobal = req.body?.fillGlobal === true;
+    const result = await ensureCentralSpawns(c, { fillGlobal });
+    lastSpawnCheckTime = new Date();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  } finally {
+    isProcessing = false;
+  }
+});
+
 // ── Start ──────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`Revenue Processor listening on port ${PORT}`);
@@ -231,6 +273,7 @@ app.listen(PORT, () => {
   if (MOCK_GACHA) {
     console.log(`⚠ MOCK_GACHA=true — Minting test NFTs locally instead of calling Gacha API`);
   }
+  console.log(`Spawn manager active — ensuring >=4 central spawns every cron tick`);
 
   // Schedule cron
   setInterval(cronTick, CRON_INTERVAL_MS);

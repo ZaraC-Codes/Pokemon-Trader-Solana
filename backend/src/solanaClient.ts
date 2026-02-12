@@ -36,6 +36,7 @@ import {
 
 // PDA seed constants (must match program constants.rs)
 const GAME_CONFIG_SEED = Buffer.from("game_config");
+const POKEMON_SLOTS_SEED = Buffer.from("pokemon_slots");
 const NFT_VAULT_SEED = Buffer.from("nft_vault");
 const TREASURY_SEED = Buffer.from("treasury");
 
@@ -83,6 +84,7 @@ function loadIdl(): any {
 
 export interface GamePDAs {
   gameConfig: PublicKey;
+  pokemonSlots: PublicKey;
   nftVault: PublicKey;
   treasuryConfig: PublicKey;
 }
@@ -112,6 +114,21 @@ export interface NftVaultAccount {
 export interface TreasuryConfigAccount {
   treasuryWallet: PublicKey;
   totalWithdrawn: BN;
+  bump: number;
+}
+
+export interface PokemonSlotData {
+  isActive: boolean;
+  pokemonId: BN;
+  posX: number;
+  posY: number;
+  throwAttempts: number;
+  spawnTimestamp: BN;
+}
+
+export interface PokemonSlotsAccount {
+  slots: PokemonSlotData[];
+  activeCount: number;
   bump: number;
 }
 
@@ -171,6 +188,10 @@ export class SolanaClient {
       [GAME_CONFIG_SEED],
       POKEBALL_GAME_PROGRAM_ID
     );
+    const [pokemonSlots] = PublicKey.findProgramAddressSync(
+      [POKEMON_SLOTS_SEED],
+      POKEBALL_GAME_PROGRAM_ID
+    );
     const [nftVault] = PublicKey.findProgramAddressSync(
       [NFT_VAULT_SEED],
       POKEBALL_GAME_PROGRAM_ID
@@ -179,7 +200,7 @@ export class SolanaClient {
       [TREASURY_SEED],
       POKEBALL_GAME_PROGRAM_ID
     );
-    return { gameConfig, nftVault, treasuryConfig };
+    return { gameConfig, pokemonSlots, nftVault, treasuryConfig };
   }
 
   /** Fetch GameConfig account. */
@@ -201,6 +222,53 @@ export class SolanaClient {
     return (await this.program.account.treasuryConfig.fetch(
       this.pdas.treasuryConfig
     )) as unknown as TreasuryConfigAccount;
+  }
+
+  /** Fetch PokemonSlots account (all 20 slots). */
+  async getPokemonSlots(): Promise<PokemonSlotsAccount> {
+    return (await this.program.account.pokemonSlots.fetch(
+      this.pdas.pokemonSlots
+    )) as unknown as PokemonSlotsAccount;
+  }
+
+  /**
+   * Force-spawn a Pokemon at specific coordinates (authority only).
+   * Calls the on-chain force_spawn_pokemon instruction.
+   */
+  async forceSpawnPokemon(
+    slotIndex: number,
+    posX: number,
+    posY: number
+  ): Promise<string> {
+    const tx = await this.program.methods
+      .forceSpawnPokemon(slotIndex, posX, posY)
+      .accounts({
+        authority: this.wallet.publicKey,
+        gameConfig: this.pdas.gameConfig,
+        pokemonSlots: this.pdas.pokemonSlots,
+      })
+      .rpc();
+    return tx;
+  }
+
+  /**
+   * Reposition an active Pokemon to new coordinates (authority only).
+   * Calls the on-chain reposition_pokemon instruction.
+   */
+  async repositionPokemon(
+    slotIndex: number,
+    newPosX: number,
+    newPosY: number
+  ): Promise<string> {
+    const tx = await this.program.methods
+      .repositionPokemon(slotIndex, newPosX, newPosY)
+      .accounts({
+        authority: this.wallet.publicKey,
+        gameConfig: this.pdas.gameConfig,
+        pokemonSlots: this.pdas.pokemonSlots,
+      })
+      .rpc();
+    return tx;
   }
 
   /** Get the game's SolBalls ATA (owned by gameConfig PDA). */

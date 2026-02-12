@@ -135,10 +135,11 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   └── src/
 │       ├── index.ts                     # Express server + cron scheduler
 │       ├── config.ts                    # Env var loading & validation
-│       ├── solanaClient.ts              # Anchor program client (PDAs, withdraw, deposit, ALT management)
+│       ├── solanaClient.ts              # Anchor program client (PDAs, withdraw, deposit, spawn, ALT management)
 │       ├── revenueProcessor.ts          # Swap pipeline (Jupiter) + USDC split
 │       ├── gachaClient.ts              # Collector Crypt Gacha API client
 │       ├── mockGacha.ts                # Mock NFT minting for devnet (when Gacha machine is empty)
+│       ├── spawnManager.ts             # Central spawn enforcement (ensure >=4 near player start)
 │       ├── nftDepositor.ts             # NFT scan + vault deposit + ALT extension
 │       └── __tests__/
 │           └── revenueProcessor.test.ts # Unit tests (split, thresholds)
@@ -153,6 +154,7 @@ All `GameConfig`, `PokemonSlots`, and `NftVault` account fields use `Box<Account
 │   ├── withdraw-revenue.ts          # Withdraw SolCatch revenue
 │   ├── create-vault-alt.ts          # Create Address Lookup Table for vault NFTs
 │   ├── mint-test-nfts.ts            # Mint fake test NFTs + deposit into vault (devnet)
+│   ├── check-spawns.ts             # Debug: central zone spawn diagnostic
 │   ├── run-create-alt.bat           # Windows batch: create ALT with env vars
 │   └── run-mint-test-nfts.bat       # Windows batch: mint test NFTs with env vars
 │
@@ -500,6 +502,9 @@ npx tsx scripts/solana/create-vault-alt.ts
 # Mint test NFTs + deposit into vault + extend ALT (devnet only)
 npx tsx scripts/solana/mint-test-nfts.ts --count 3 --alt <ALT_ADDRESS>
 
+# Check spawn positions and central zone compliance
+npx tsx scripts/solana/check-spawns.ts
+
 # Windows batch files (set env vars automatically using WSL keypair path)
 scripts\solana\run-create-alt.bat
 scripts\solana\run-mint-test-nfts.bat
@@ -670,6 +675,7 @@ All endpoints (except `/health`) require `X-ADMIN-KEY` header.
 | `/status` | GET | Balances, vault count, timestamps, processing state |
 | `/trigger-swap` | POST | Manual swap + split pipeline |
 | `/trigger-gacha` | POST | Manual Gacha purchase + NFT deposit |
+| `/trigger-spawns` | POST | Manual spawn check + central zone enforcement |
 
 ### Cron Pipeline (every 5 min, configurable via `CRON_INTERVAL_MS`)
 
@@ -677,6 +683,7 @@ All endpoints (except `/health`) require `X-ADMIN-KEY` header.
    - Skipped when `SKIP_REVENUE_SWAP=true` (devnet — no SOLCATCH liquidity pool)
 2. **Phase 2 — Gacha**: Check NFT pool USDC >= pack cost AND vault not full → Gacha API `generatePack` → sign/submit → `openPack` → `deposit_nft`
    - When `MOCK_GACHA=true`: mints test NFTs locally instead of calling external Gacha API (devnet Gacha machine is currently empty)
+3. **Phase 3 — Spawns**: Ensure ≥4 active Pokemon in central zone (500±80, 500±80). First fills empty slots with central spawns, then repositions farthest non-central Pokemon if all slots are full.
 
 ### Devnet Mode Flags
 
@@ -691,10 +698,11 @@ When both are `true`, the cron only runs Phase 2 with mock NFTs: check USDC bala
 
 | File | Responsibility |
 |------|---------------|
-| `solanaClient.ts` | Anchor wrapper: PDA derivation, `withdrawRevenue()`, `depositNft()`, `findNewNftsInWallet()`, `signAndSendTransaction()`, ALT management (`createVaultAlt()`, `extendVaultAlt()`, `extendAltForNewNft()`) |
+| `solanaClient.ts` | Anchor wrapper: PDA derivation, `withdrawRevenue()`, `depositNft()`, `findNewNftsInWallet()`, `forceSpawnPokemon()`, `repositionPokemon()`, `getPokemonSlots()`, `signAndSendTransaction()`, ALT management |
 | `revenueProcessor.ts` | Jupiter quote/swap, `splitUsdcAmounts()`, `shouldRunSwap()`, full pipeline orchestration |
 | `gachaClient.ts` | Gacha API: `purchasePack()` (generate→sign→submit→open), `purchaseMultiplePacks()`. Default pack type: `pokemon_50` |
 | `mockGacha.ts` | Mock Gacha for devnet: `mintMockNft()` creates SPL token (decimals=0, amount=1), `mockPurchasePacks()` mints N test NFTs |
+| `spawnManager.ts` | Central spawn enforcement: `ensureCentralSpawns()` fills empty slots + repositions farthest non-central Pokemon. Constants: CENTER_X/Y=500, CENTER_RADIUS=80, MIN_CENTRAL_SPAWNS=4 |
 | `nftDepositor.ts` | Scan wallet for NFTs not in vault, deposit each via `deposit_nft` instruction, extend ALT after each deposit |
 | `config.ts` | All env vars with validation (revenue split must total 100), `VAULT_ALT_ADDRESS`, `SKIP_REVENUE_SWAP`, `MOCK_GACHA` |
 
