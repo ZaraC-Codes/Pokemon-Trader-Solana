@@ -44,6 +44,11 @@ interface GameCanvasProps {
    * @param pokemonId - The Pokemon ID from the event
    */
   onCatchResultRef?: React.MutableRefObject<((caught: boolean, pokemonId: bigint) => void) | null>;
+  /**
+   * Ref callback that parent can call to force an immediate refetch of on-chain spawn data.
+   * Used after throw results (caught/missed/relocated) to avoid 5-second staleness window.
+   */
+  refetchSpawnsRef?: React.MutableRefObject<(() => void) | null>;
   // Music disabled
   // onMusicToggle?: () => void;
 }
@@ -123,7 +128,7 @@ function toManagerSpawn(contract: ContractPokemonSpawn, index: number): ManagerP
   return result;
 }
 
-export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfRange, onVisualThrowRef, onCatchResultRef }: GameCanvasProps) {
+export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfRange, onVisualThrowRef, onCatchResultRef, refetchSpawnsRef }: GameCanvasProps) {
   const gameRef = useRef<Phaser.Game | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const onTradeClickRef = useRef(onTradeClick);
@@ -136,7 +141,19 @@ export default function GameCanvas({ onTradeClick, onPokemonClick, onCatchOutOfR
   const pendingSpawnsRef = useRef<ContractPokemonSpawn[] | null>(null);
 
   // Fetch on-chain Pokemon spawns (polls every 5 seconds)
-  const { data: contractSpawns, isLoading: spawnsLoading } = usePokemonSpawns();
+  const { data: contractSpawns, isLoading: spawnsLoading, refetch: refetchSpawns } = usePokemonSpawns();
+
+  // Expose refetch to parent so App.tsx can trigger immediate refresh after throw results
+  useEffect(() => {
+    if (refetchSpawnsRef) {
+      refetchSpawnsRef.current = refetchSpawns;
+    }
+    return () => {
+      if (refetchSpawnsRef) {
+        refetchSpawnsRef.current = null;
+      }
+    };
+  }, [refetchSpawnsRef, refetchSpawns]);
 
   // Keep the callback refs updated without causing re-renders
   useEffect(() => {

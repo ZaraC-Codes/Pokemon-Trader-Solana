@@ -75,6 +75,9 @@ function AppContent() {
   // Ref for notifying Phaser of catch results to reset manager state
   const catchResultRef = useRef<((caught: boolean, pokemonId: bigint) => void) | null>(null);
 
+  // Ref for triggering immediate spawn data refetch after throw results
+  const refetchSpawnsRef = useRef<(() => void) | null>(null);
+
   // Toast management
   const addToast = useCallback((message: string, type: ToastMessage['type'] = 'warning') => {
     const id = Date.now();
@@ -267,17 +270,16 @@ function AppContent() {
   }, []);
 
   const handlePokemonClick = useCallback((data: PokemonClickData) => {
-    const remaining = 3 - data.attemptCount;
-    if (remaining <= 0) {
-      addToast('No attempts remaining for this Pokemon!', 'warning');
-      return;
-    }
+    // Don't block based on attemptCount — the on-chain program is the single source of truth
+    // for max attempts (throw_ball checks throw_attempts < MAX_THROW_ATTEMPTS).
+    // Frontend attemptCount can be stale (5s poll) after a relocation resets attempts to 0.
+    const remaining = Math.max(3 - data.attemptCount, 0);
     setSelectedPokemon({
       pokemonId: data.pokemonId,
       slotIndex: data.slotIndex,
       attemptsRemaining: remaining,
     });
-  }, [addToast]);
+  }, []);
 
   const lastOutOfRangeAtRef = useRef<number>(0);
 
@@ -378,6 +380,15 @@ function AppContent() {
       addToast(errMsg, 'warning');
       console.error('[App] ThrowResult error:', errMsg);
     }
+
+    // After any throw result (caught/missed/relocated), immediately refetch on-chain spawn data
+    // so PokemonSpawnManager has up-to-date throw_attempts (avoids 5-second staleness window).
+    if (result.status !== 'error') {
+      // Small delay to let the on-chain state finalize after tx confirmation
+      setTimeout(() => {
+        refetchSpawnsRef.current?.();
+      }, 500);
+    }
   }, [addToast]);
 
   const handleShowHelp = useCallback(() => {
@@ -407,6 +418,7 @@ function AppContent() {
         onCatchOutOfRange={handleCatchOutOfRange}
         onVisualThrowRef={visualThrowRef}
         onCatchResultRef={catchResultRef}
+        refetchSpawnsRef={refetchSpawnsRef}
       />
       <GameHUD playerAddress={account} onShowHelp={handleShowHelp} />
 

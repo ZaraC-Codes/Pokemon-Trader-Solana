@@ -442,7 +442,7 @@ export function CatchAttemptModal({
                       ballType={ballType}
                       ownedCount={count}
                       onThrow={() => handleThrow(ballType)}
-                      isDisabled={attemptsRemaining <= 0}
+                      isDisabled={false}
                       isThrowInProgress={isThrowInProgress}
                       isThrowingThis={isThrowInProgress && throwingBallType === ballType}
                     />
@@ -466,10 +466,10 @@ export function CatchAttemptModal({
           </div>
         )}
 
-        {/* No attempts warning */}
+        {/* No attempts warning — informational only, on-chain program is the source of truth */}
         {attemptsRemaining <= 0 && (
           <div style={styles.errorBox}>
-            <span style={styles.errorText}>No attempts remaining! This Pokemon will relocate.</span>
+            <span style={styles.errorText}>Attempts may have been reset — try throwing!</span>
           </div>
         )}
 
