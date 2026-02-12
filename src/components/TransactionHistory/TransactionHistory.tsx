@@ -26,7 +26,6 @@ export interface TransactionHistoryProps {
   onClearLog?: () => void;
 }
 
-// Note: 'throw' kept for backward compat with old persisted data (not created anymore)
 type EventType = 'purchase' | 'throw' | 'caught' | 'escaped';
 
 // ============================================================
@@ -302,6 +301,26 @@ function PurchaseCard({ event, now }: { event: PersistedGameEvent; now: number }
   );
 }
 
+function ThrowCard({ event, now }: { event: PersistedGameEvent; now: number }) {
+  return (
+    <div style={styles.eventCard}>
+      <div style={{ ...styles.badge, color: BADGE_COLORS.throw, backgroundColor: BADGE_BG.throw, border: `1px solid ${BADGE_COLORS.throw}` }}>
+        THROW
+      </div>
+      <div style={styles.eventBody}>
+        <div style={styles.eventTitle}>Pokemon #{event.pokemonId}</div>
+        <div style={styles.eventMeta}>
+          {event.ballType !== undefined && (
+            <span style={{ ...styles.ballDot, backgroundColor: BALL_COLORS[event.ballType] || '#888' }} />
+          )}
+          <span>Ball Used: {event.ballName || 'Unknown'}</span>
+        </div>
+      </div>
+      <div style={styles.eventTime}>{formatTimestamp(event.timestamp)}</div>
+    </div>
+  );
+}
+
 function CaughtCard({ event, now }: { event: PersistedGameEvent; now: number }) {
   return (
     <div style={styles.eventCard}>
@@ -349,9 +368,9 @@ export function TransactionHistory({ isOpen, onClose, playerAddress, events: per
   const allEvents = persistedEvents;
 
   // Compute stats
-  // Throws = caught + escaped (each attempt results in exactly one outcome).
-  // ThrowAttempted events are NOT persisted — only the consume_randomness
-  // outcome (CaughtPokemon / FailedCatch) represents a real attempt.
+  // Throws counter = caught + escaped (each resolved attempt produces exactly
+  // one outcome). This avoids double-counting from the 'throw' log rows which
+  // fire on the initial throw_ball tx before the outcome is known.
   const stats = useMemo(() => {
     const purchases = allEvents.filter(e => e.type === 'purchase').length;
     const caught = allEvents.filter(e => e.type === 'caught').length;
@@ -467,12 +486,13 @@ export function TransactionHistory({ isOpen, onClose, playerAddress, events: per
               switch (ev.type) {
                 case 'purchase':
                   return <PurchaseCard key={ev.key} event={ev} now={now} />;
+                case 'throw':
+                  return <ThrowCard key={ev.key} event={ev} now={now} />;
                 case 'caught':
                   return <CaughtCard key={ev.key} event={ev} now={now} />;
                 case 'escaped':
                   return <EscapedCard key={ev.key} event={ev} now={now} />;
                 default:
-                  // Skip legacy 'throw' entries and unknown types
                   return null;
               }
             })

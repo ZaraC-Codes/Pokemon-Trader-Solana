@@ -32,6 +32,7 @@ import {
   usePlayerInventory,
   getBallTypeName,
   useBallPurchasedEvents,
+  useThrowAttemptedEvents,
   useCaughtPokemonEvents,
   useFailedCatchEvents,
   useTransactionLog,
@@ -387,17 +388,19 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
   const { events: persistedEvents, appendEvents, clearLog } = useTransactionLog(playerAddress);
 
   // Subscribe to WebSocket events and pipe into persisted log
-  // Note: ThrowAttempted events are NOT persisted — they fire on the initial
-  // throw_ball tx (1st wallet popup). The actual attempt is represented by
-  // CaughtPokemon or FailedCatch from consume_randomness (2nd wallet popup).
-  // This ensures each catch attempt = exactly 1 log entry + 1 Throws count.
+  // ThrowAttempted creates a 'throw' row (ball used, pokemon targeted).
+  // CaughtPokemon / FailedCatch create 'caught' / 'escaped' rows (outcome).
+  // The Throws *counter* in the stats bar is derived from caught + escaped
+  // (not from 'throw' rows), so each attempt counts exactly once.
   const { events: purchaseEvents } = useBallPurchasedEvents();
+  const { events: throwEvents } = useThrowAttemptedEvents();
   const { events: caughtEvents } = useCaughtPokemonEvents();
   const { events: failedEvents } = useFailedCatchEvents();
 
   // Track how many events we've already processed to avoid re-processing
   const processedCountRef = useRef({
     purchases: 0,
+    throws: 0,
     caught: 0,
     failed: 0,
   });
@@ -426,6 +429,31 @@ export function GameHUD({ playerAddress, onShowHelp }: GameHUDProps) {
     processedCountRef.current.purchases = purchaseEvents.length;
     if (newEvents.length > 0) appendEvents(newEvents);
   }, [purchaseEvents, playerAddress, appendEvents]);
+
+  // Pipe new throw events (shows which ball was used against which Pokemon)
+  useEffect(() => {
+    if (!playerAddress) return;
+    const prev = processedCountRef.current.throws;
+    if (throwEvents.length <= prev) return;
+
+    const newEvents: PersistedGameEvent[] = [];
+    for (let i = prev; i < throwEvents.length; i++) {
+      const ev = throwEvents[i];
+      if (ev.args.thrower !== playerAddress) continue;
+      newEvents.push({
+        key: ev.eventKey,
+        type: 'throw',
+        timestamp: ev.receivedAt,
+        slot: ev.slot,
+        pokemonId: ev.args.pokemonId.toString(),
+        slotIndex: ev.args.slotIndex,
+        ballType: ev.args.ballType,
+        ballName: BALL_NAMES_MAP[ev.args.ballType] || 'Ball',
+      });
+    }
+    processedCountRef.current.throws = throwEvents.length;
+    if (newEvents.length > 0) appendEvents(newEvents);
+  }, [throwEvents, playerAddress, appendEvents]);
 
   // Pipe new caught events
   useEffect(() => {
