@@ -260,10 +260,13 @@ export function useThrowBall(): UseThrowBallReturn {
         const err = e instanceof Error ? e : new Error(String(e));
         console.error('[useThrowBall] raw error message:', err.message);
 
-        // Parse Anchor errors
+        // Parse Anchor / Solana errors into user-friendly messages.
+        // IMPORTANT: Check specific Anchor error names BEFORE generic patterns.
+        // Solana formats custom errors as "custom program error: 0xNNNN" — so
+        // generic checks like includes('0x1') would match ALL custom errors.
         const msg = err.message;
         let friendlyError: Error;
-        if (msg.includes('InsufficientBalls')) {
+        if (msg.includes('InsufficientBalls') || msg.includes('InsufficientSolBalls')) {
           friendlyError = new Error("You don't have any of that ball type");
         } else if (msg.includes('SlotNotActive')) {
           friendlyError = new Error('This Pokemon has already been caught or despawned');
@@ -275,20 +278,24 @@ export function useThrowBall(): UseThrowBallReturn {
           friendlyError = new Error('Invalid ball type selected');
         } else if (msg.includes('NotInitialized')) {
           friendlyError = new Error('Game not initialized. Please try again later.');
-        } else if (msg.includes('User rejected') || msg.includes('rejected')) {
+        } else if (msg.includes('VrfAlreadyFulfilled')) {
+          friendlyError = new Error('This throw was already resolved. Refresh and try again.');
+        } else if (msg.includes('VRF fulfillment timeout')) {
+          friendlyError = new Error('VRF timeout — catch result not received. It may still process on-chain.');
+        } else if (msg.includes('User rejected') || msg.includes('rejected the request')) {
           friendlyError = new Error('Transaction cancelled');
-        } else if (msg.includes('insufficient') || msg.includes('0x1')) {
+        } else if (msg.includes('Insufficient SOL') || msg.includes('insufficient lamports') || msg.includes('insufficient funds')) {
           friendlyError = new Error('Insufficient SOL for transaction fee');
         } else if (msg.includes('timeout') || msg.includes('Timed out')) {
           friendlyError = new Error('Transaction timed out. Please try again.');
-        } else if (msg.includes('VRF fulfillment timeout')) {
-          friendlyError = new Error('VRF timeout — catch result not received. It may still process on-chain.');
-        } else if (msg.includes('blockhash') || msg.includes('Blockhash not found')) {
+        } else if (msg.includes('blockhash') || msg.includes('Blockhash not found') || msg.includes('block height exceeded')) {
           friendlyError = new Error('Network congestion. Please try again.');
-        } else if (msg.includes('VrfAlreadyFulfilled')) {
-          friendlyError = new Error('This throw was already resolved. Refresh and try again.');
+        } else if (msg.includes('expired')) {
+          friendlyError = new Error('Transaction expired. Please try again.');
         } else {
-          friendlyError = new Error('Throw failed. Please try again.');
+          // Log the raw error for debugging — don't hide it behind a generic message
+          console.error('[useThrowBall] Unrecognized error:', msg);
+          friendlyError = new Error(msg.length > 120 ? 'Throw failed. Please try again.' : msg);
         }
 
         setError(friendlyError);
